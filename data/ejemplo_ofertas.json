@@ -1,0 +1,8 @@
+[
+  {"titulo":"Analista QA Funcional","empresa":"Empresa Demo Retail","descripcion":"Pruebas funcionales, regresión, UAT, gestión de defectos, SQL y trabajo Agile.","modalidad":"Híbrido · Santiago","link":"https://example.com/qa","fuente":"Demo"},
+  {"titulo":"DBA Junior","empresa":"Empresa Demo Banca","descripcion":"Soporte de bases de datos SQL Server y Oracle, backups, monitoreo y Linux.","modalidad":"Híbrido","link":"https://example.com/dba","fuente":"Demo"},
+  {"titulo":"Cloud Support Junior","empresa":"Empresa Demo Tech","descripcion":"Soporte operativo AWS y Azure, Linux y gestión de incidentes.","modalidad":"Remoto Chile","link":"https://example.com/cloud","fuente":"Demo"},
+  {"titulo":"Ejecutivo Comercial Cloud","empresa":"Empresa Demo Ventas","descripcion":"Venta consultiva de soluciones cloud y generación de pipeline comercial.","modalidad":"Santiago","link":"https://example.com/sales","fuente":"Demo"},
+  {"titulo":"Analista Funcional Junior","empresa":"Empresa Demo Gobierno","descripcion":"Levantamiento de requerimientos, criterios de aceptación, documentación y UAT.","modalidad":"Híbrido","link":"https://example.com/ba","fuente":"Demo"},
+  {"titulo":"QA Automation Senior","empresa":"Empresa Demo Software","descripcion":"Selenium, Playwright, test automation y liderazgo técnico. Inglés avanzado.","modalidad":"Remoto","link":"https://example.com/senior","fuente":"Demo"}
+]

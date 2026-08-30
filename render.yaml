@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: job-search-dashboard
+    runtime: docker
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: ENABLE_LINKEDIN
+        value: "false"
+      - key: LETTER_API_BASE_URL
+        sync: false
+      - key: LETTER_API_KEY
+        sync: false
+      - key: LETTER_API_MODEL
+        sync: false

@@ -1,0 +1,42 @@
+{
+  "objetivo": "Roles TI junior/intermedio con foco principal en QA y experiencia complementaria en datos, cloud y soporte.",
+  "ubicacion": "Santiago, Chile",
+  "areas": {
+    "QA / Testing": {
+      "nivel": "fuerte",
+      "peso": 1.0,
+      "titulo": ["qa", "tester", "testing", "sdet", "quality assurance", "analista de pruebas"],
+      "skills": ["pruebas funcionales", "regresión", "uat", "casos de prueba", "gestión de defectos", "postman", "sql", "agile", "scrum"]
+    },
+    "Bases de datos": {
+      "nivel": "junior",
+      "peso": 0.72,
+      "titulo": ["dba", "administrador de base de datos", "database administrator"],
+      "skills": ["sql server", "oracle", "db2", "sql", "linux", "backup", "tuning"]
+    },
+    "Cloud / Operaciones": {
+      "nivel": "junior",
+      "peso": 0.68,
+      "titulo": ["soporte cloud", "cloud support", "cloud operations", "operador cloud"],
+      "skills": ["aws", "azure", "gcp", "linux", "cloud", "operaciones"]
+    },
+    "Análisis funcional": {
+      "nivel": "parcial",
+      "peso": 0.60,
+      "titulo": ["analista funcional", "business analyst", "analista de negocio"],
+      "skills": ["levantamiento de requerimientos", "uat", "criterios de aceptación", "documentación"]
+    },
+    "Soporte TI": {
+      "nivel": "parcial",
+      "peso": 0.58,
+      "titulo": ["soporte ti", "soporte técnico", "help desk", "helpdesk", "service desk", "mesa de ayuda"],
+      "skills": ["soporte n1", "soporte n2", "linux", "active directory", "usuarios", "incidentes"]
+    }
+  },
+  "dominios_valorados": ["retail", "banca", "banco", "financiero", "gobierno"],
+  "penalizaciones": {
+    "senioridad": ["senior", "sr.", "lead", "líder", "arquitecto", "architect", "manager"],
+    "roles_no_objetivo": ["ventas", "sales", "comercial", "marketing", "recruiter", "reclutador"],
+    "ingles_avanzado": ["english c1", "inglés c1", "advanced english", "inglés avanzado"]
+  }
+}
