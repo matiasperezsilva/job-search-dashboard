@@ -66,3 +66,10 @@ MIT.
 La versión actual incorpora un modo de búsqueda rápida optimizado para hosting gratuito en Render: limita términos y resultados por portal, bloquea recursos visuales innecesarios en Chromium, evita esperas `networkidle` y muestra progreso/tiempos por fuente. GetOnBoard consulta sus categorías técnicas públicas para reducir dependencia del buscador JavaScript.
 
 La interfaz utiliza una capa visual personalizada sobre Streamlit con dashboard, navegación lateral, tarjetas, estados y vistas más orientadas a producto.
+
+## Calidad de resultados
+
+La aplicación aplica una validación de relevancia antes del scoring. Las búsquedas usan nombres de cargos en lugar de tecnologías aisladas y los roles QA ambiguos requieren señales de software/TI. Páginas de resultados, QA/QC industrial, minería, construcción, alimentos y otros contextos de calidad no tecnológicos se descartan.
+
+GetOnBoard y Computrabajo utilizan consultas HTTP sobre contenido público para reducir consumo de recursos en Render. Las demás fuentes mantienen adaptadores aislados para que el fallo de un portal no detenga toda la búsqueda.
+

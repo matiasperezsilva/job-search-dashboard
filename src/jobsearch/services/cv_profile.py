@@ -108,16 +108,21 @@ def construir_perfil_desde_texto(texto: str) -> dict:
         if _contiene(lower, term):
             dominios.append(term)
 
-    # Priorizar términos de búsqueda de las áreas con mayor evidencia.
+    # Los términos de búsqueda deben describir CARGOS, no tecnologías aisladas.
+    # Buscar por "sql", "linux" o "java" genera muchísimo ruido en portales generalistas.
     orden_areas = sorted(puntuaciones_area, key=puntuaciones_area.get, reverse=True)
+    SEARCH_TERMS = {
+        "QA / Testing": ["qa software", "qa tester", "analista qa", "tester software", "qa funcional", "qa automation"],
+        "Cloud / Operaciones": ["cloud support", "soporte cloud", "cloud engineer junior", "operaciones cloud"],
+        "Bases de datos": ["dba junior", "administrador base de datos", "database administrator junior"],
+        "Análisis funcional": ["analista funcional ti", "business analyst ti"],
+        "Soporte TI": ["soporte ti", "soporte técnico n1", "service desk", "help desk ti"],
+        "Desarrollo": ["desarrollador junior", "software developer junior"],
+    }
     terminos = []
     for area in orden_areas[:4]:
-        rules = AREA_RULES[area]
-        terminos.extend(rules["title_terms"][:4])
-    # Agregar skills distintivas del CV, no genéricas como git/api.
-    distintivas = [s for s in skills_detectadas if s not in {"git", "github", "api", "rest", "agile", "scrum"}]
-    terminos.extend(distintivas[:8])
-    terminos = list(dict.fromkeys(t.strip() for t in terminos if t.strip()))[:18]
+        terminos.extend(SEARCH_TERMS.get(area, AREA_RULES[area]["title_terms"][:3]))
+    terminos = list(dict.fromkeys(t.strip() for t in terminos if t.strip()))[:14]
 
     return {
         "origen": "cv",

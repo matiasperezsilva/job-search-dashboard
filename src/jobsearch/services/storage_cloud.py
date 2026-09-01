@@ -81,3 +81,20 @@ def _fuentes(rows):
     counts = {}
     for r in rows: counts[r.get('fuente','')]=counts.get(r.get('fuente',''),0)+1
     return [{'fuente': k, 'cantidad': v} for k,v in sorted(counts.items(), key=lambda x:x[1], reverse=True)]
+
+
+def reevaluar_ofertas(perfil, evaluador):
+    """Recalcula scoring de las ofertas existentes sin borrar historial."""
+    uid = _uid(); client = client_autenticado()
+    rows = client.table('jobs').select('*').eq('user_id', uid).execute().data or []
+    actualizadas = 0
+    descartadas = 0
+    for oferta in rows:
+        ev = evaluador(oferta, perfil)
+        client.table('jobs').update({
+            'puntaje': ev['puntaje'], 'area': ev['area'], 'razon': ev['razon']
+        }).eq('user_id', uid).eq('id', oferta['id']).execute()
+        actualizadas += 1
+        if ev['puntaje'] < 30:
+            descartadas += 1
+    return {'actualizadas': actualizadas, 'descartadas': descartadas}
