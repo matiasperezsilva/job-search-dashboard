@@ -1,129 +1,218 @@
-"""Adaptador de búsqueda para bne."""
+"""BNE: búsqueda pública con Playwright y fallback al listado.
+
+La BNE mantiene /ofertas?mostrar=empleo y fichas /oferta/<id>. El formulario
+ha cambiado de estructura varias veces, por eso no dependemos de un único selector:
+detectamos el campo visible, probamos Enter/botón y aceptamos ofertas internas y externas.
+"""
+
+import re
+from urllib.parse import urljoin
+
+from bs4 import BeautifulSoup
 
 from .common import nueva_pagina
 
+USES_BROWSER = True
 NOMBRE = "BNE"
+BASE_URL = "https://www.bne.cl"
+SEARCH_URL = f"{BASE_URL}/ofertas?mostrar=empleo"
 _LAST_DIAGNOSTIC = {}
 
 
 def get_last_diagnostic():
     return dict(_LAST_DIAGNOSTIC)
 
-BASE_URL = "https://www.bne.cl"
-TERMINOS_BUSQUEDA = [
-    "QA", "tester", "analista de pruebas", "quality assurance",
-    "DBA", "administrador de base de datos",
-    "soporte cloud",
-    "analista funcional",
-    "soporte TI", "mesa de ayuda",
-]
-MAX_PAGINAS_POR_TERMINO = 1
-PAUSA_MS = 200
+
+def _blocked(text: str) -> bool:
+    low = (text or "").lower()
+    return any(x in low for x in (
+        "captcha", "access denied", "verify you are human",
+        "verifica que eres humano", "cloudflare",
+    ))
+
+
+def _offer_links(page):
+    raw = page.locator('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]').evaluate_all(
+        "els => els.map(e => e.href)"
+    )
+    out = []
+    for href in raw:
+        link = urljoin(BASE_URL, href).split("?")[0].split("#")[0]
+        if re.search(r"/(?:oferta|ofertaEmpleoExterno)/[^/?#]+", link):
+            out.append(link)
+    return list(dict.fromkeys(out))
+
+
+def _visible_search_input(page):
+    selectors = [
+        'input[placeholder*="profesi" i]',
+        'input[placeholder*="empresa" i]',
+        'input[placeholder*="palabra" i]',
+        'input[type="search"]',
+        'input[type="text"]',
+    ]
+    for selector in selectors:
+        loc = page.locator(selector)
+        for i in range(min(loc.count(), 20)):
+            candidate = loc.nth(i)
+            try:
+                if candidate.is_visible():
+                    placeholder = (candidate.get_attribute("placeholder") or "").lower()
+                    # Evitar inputs de filtros región/ocupación si hay uno más específico.
+                    if any(x in placeholder for x in ("región", "region", "ocupación", "ocupacion")):
+                        continue
+                    return candidate
+            except Exception:
+                continue
+    return None
 
 
 def _buscar_links_por_termino(page, termino):
-    print(f"  [{NOMBRE}] Buscando '{termino}'")
-    page.goto(f"{BASE_URL}/ofertas?mostrar=empleo", wait_until="domcontentloaded", timeout=8000)
-    page.wait_for_timeout(250)
-    campo = page.locator('input[placeholder*="palabra" i], input[placeholder*="profesi" i]').first
+    page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
+    page.wait_for_timeout(500)
+    body = page.locator("body").inner_text(timeout=3000) if page.locator("body").count() else ""
+    if _blocked(body):
+        _LAST_DIAGNOSTIC["blocked"] = True
+        return []
+
+    campo = _visible_search_input(page)
+    if campo is None:
+        raise RuntimeError("BNE cambió el campo principal de búsqueda")
+
     campo.fill(termino)
-    page.locator('button:has-text("BUSCAR"), input[type="submit"]').first.click()
+    submitted = False
     try:
-        page.wait_for_load_state("networkidle", timeout=5000)
+        campo.press("Enter", timeout=2000)
+        submitted = True
     except Exception:
         pass
-    page.wait_for_timeout(800)
 
-    links = set()
-    for _ in range(MAX_PAGINAS_POR_TERMINO):
-        nuevos = page.locator('a[href*="/oferta/"]').evaluate_all(
-            "els => els.map(e => e.href)"
-        )
-        if not nuevos:
-            break
-        antes = len(links)
-        links.update(nuevos)
-        if len(links) == antes:
-            break
+    try:
+        page.wait_for_selector('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]', timeout=4500)
+    except Exception:
+        if submitted:
+            # Enter puede no enviar el formulario. Intentamos el botón visible.
+            pass
 
-        siguiente = page.locator('a[aria-label="Siguiente"], a:has-text("›")')
-        if siguiente.count() == 0:
-            break
+    links = _offer_links(page)
+    if not links:
+        buttons = page.locator('button:has-text("BUSCAR"), button:has-text("Buscar"), input[type="submit"]')
+        for i in range(min(buttons.count(), 10)):
+            try:
+                if buttons.nth(i).is_visible():
+                    buttons.nth(i).click(timeout=2500)
+                    break
+            except Exception:
+                continue
         try:
-            siguiente.first.click(timeout=3000)
-            page.wait_for_timeout(250)
+            page.wait_for_selector('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]', timeout=6000)
         except Exception:
-            break
+            pass
+        links = _offer_links(page)
 
-    print(f"    {len(links)} ofertas encontradas")
     return links
 
 
+def _text_after_label(doc, label: str):
+    text = doc.get_text("\n", strip=True)
+    m = re.search(rf"{re.escape(label)}\s*:?\s*\n?\s*([^\n]{{1,160}})", text, re.I)
+    return m.group(1).strip() if m else ""
+
+
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="domcontentloaded", timeout=8000)
-    page.wait_for_timeout(200)
+    page.goto(link, wait_until="domcontentloaded", timeout=15000)
+    try:
+        page.wait_for_selector("#nombreOferta, h1", timeout=5000)
+    except Exception:
+        pass
 
-    titulo = page.locator("#nombreOferta > span").first.inner_text().strip()
+    html = page.content()
+    doc = BeautifulSoup(html, "html.parser")
 
-    categoria_loc = page.locator("#nombreOferta small")
-    categoria = categoria_loc.first.inner_text().strip() if categoria_loc.count() > 0 else ""
+    title_el = doc.select_one("#nombreOferta > span") or doc.select_one("#nombreOferta") or doc.find("h1")
+    titulo = title_el.get_text(" ", strip=True) if title_el else ""
+    if not titulo:
+        raise ValueError("BNE no entregó título para la vacante")
 
-    empresa_bloque = page.get_by_text("Empresa:")
-    empresa = ""
-    if empresa_bloque.count() > 0:
-        texto = empresa_bloque.first.locator("xpath=../..").inner_text()
-        empresa = texto.replace("Empresa:", "").strip()
-
-    desc_heading = page.locator('h3:has-text("DESCRIPCIÓN")')
+    empresa = _text_after_label(doc, "Empresa")
     descripcion = ""
-    if desc_heading.count() > 0:
-        panel = desc_heading.first.locator("xpath=ancestor::article[1]")
-        parrafos = panel.locator("p").all_inner_texts()
-        descripcion = "\n".join(p.strip() for p in parrafos if p.strip())
+    # Ficha interna: bloque DESCRIPCIÓN.
+    heading = doc.find(lambda tag: tag.name in {"h2","h3","h4"} and "DESCRIP" in tag.get_text(" ", strip=True).upper())
+    if heading:
+        container = heading.find_parent(["article","section","div"])
+        if container:
+            descripcion = container.get_text(" ", strip=True)
+    if not descripcion:
+        # Las ofertas externas usan una estructura distinta; conservar cuerpo útil.
+        descripcion = doc.get_text(" ", strip=True)
+
+    modalidad_bits = []
+    for label in ("Tipo de contrato", "Jornada", "Nivel de Cargo ofrecido", "Ubicación"):
+        value = _text_after_label(doc, label)
+        if value:
+            modalidad_bits.append(value)
+
+    # BNE publica rango de vigencia. La primera fecha es una buena aproximación de publicación.
+    body_text = doc.get_text(" ", strip=True)
+    date_match = re.search(r"\b(\d{2})/(\d{2})/(\d{4})\b", body_text)
+    published = ""
+    if date_match:
+        published = f"{date_match.group(3)}-{date_match.group(2)}-{date_match.group(1)}"
 
     return {
         "titulo": titulo,
         "empresa": empresa,
         "descripcion": descripcion,
-        "modalidad": categoria,
+        "modalidad": " · ".join(dict.fromkeys(modalidad_bits)),
         "link": link,
         "fuente": NOMBRE,
+        "published_at": published,
     }
 
 
 def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     global _LAST_DIAGNOSTIC
-    _LAST_DIAGNOSTIC = {"links_found": 0, "offers_extracted": 0, "detail_errors": 0, "query_errors": 0, "blocked": False}
+    _LAST_DIAGNOSTIC = {
+        "links_found": 0, "offers_extracted": 0, "detail_errors": 0,
+        "query_errors": 0, "blocked": False, "transport": "playwright",
+    }
     page = nueva_pagina(browser)
+    terms = list(dict.fromkeys(t for t in (terminos or []) if t))[:3 if modo == "rapida" else 6]
+    links = []
 
-    todos_los_links = set()
-    limite_terminos = 3 if modo == "rapida" else 6
-    for idx, termino in enumerate(list(terminos or TERMINOS_BUSQUEDA)[:limite_terminos], 1):
-        if progreso: progreso(f"BNE · búsqueda {idx}/{limite_terminos} · {termino}")
+    for idx, term in enumerate(terms, 1):
+        if progreso:
+            progreso(f"BNE · {idx}/{len(terms)} · {term}")
         try:
-            todos_los_links.update(_buscar_links_por_termino(page, termino))
-            body = page.locator("body").inner_text().lower() if page.locator("body").count() else ""
-            if any(x in body for x in ("captcha", "access denied", "verifica que eres humano", "verify you are human", "cloudflare")):
-                _LAST_DIAGNOSTIC["blocked"] = True
-        except Exception as e:
+            links.extend(_buscar_links_por_termino(page, term))
+        except Exception:
             _LAST_DIAGNOSTIC["query_errors"] += 1
-            print(f"    ERROR buscando '{termino}': {e}")
-        page.wait_for_timeout(PAUSA_MS)
 
-    _LAST_DIAGNOSTIC["links_found"] = len(todos_los_links)
-    ofertas = []
-    limite_detalles = 4 if modo == "rapida" else 12
-    for idx, link in enumerate(sorted(todos_los_links)[:limite_detalles], 1):
-        if progreso: progreso(f"BNE · validando {idx}/{min(len(todos_los_links), limite_detalles)}")
+    links = list(dict.fromkeys(links))
+
+    # Si el formulario cambió pero el listado público sí carga, rescatar enlaces visibles
+    # de la página general en vez de reportar una falsa ausencia de vacantes.
+    if not links and not _LAST_DIAGNOSTIC["blocked"]:
         try:
-            oferta = _extraer_oferta(page, link)
-        except Exception as e:
+            page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(700)
+            links = _offer_links(page)
+            if links:
+                _LAST_DIAGNOSTIC["transport"] = "public-list-fallback"
+        except Exception:
+            _LAST_DIAGNOSTIC["query_errors"] += 1
+
+    _LAST_DIAGNOSTIC["links_found"] = len(links)
+    limit = 8 if modo == "rapida" else 18
+    offers = []
+    for idx, link in enumerate(links[:limit], 1):
+        if progreso:
+            progreso(f"BNE · leyendo {idx}/{min(len(links), limit)}")
+        try:
+            offers.append(_extraer_oferta(page, link))
+            _LAST_DIAGNOSTIC["offers_extracted"] += 1
+        except Exception:
             _LAST_DIAGNOSTIC["detail_errors"] += 1
-            print(f"    ERROR al procesar {link}: {e}")
-            continue
-        ofertas.append(oferta)
-        _LAST_DIAGNOSTIC["offers_extracted"] += 1
-        page.wait_for_timeout(PAUSA_MS)
 
     page.close()
-    return ofertas
+    return offers

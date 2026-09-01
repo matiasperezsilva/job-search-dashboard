@@ -1,57 +1,91 @@
-"""Trabajando.com mediante páginas públicas, sin Chromium."""
+"""Trabajando.com: navegación pública con Playwright.
+
+El listado público /trabajo-<termino> y las fichas /trabajo/<id>-<slug> existen
+sin autenticación. Se usa navegador porque desde hosts cloud la respuesta HTTP
+directa puede agotar timeout aunque la página pública cargue normalmente.
+"""
 
 import re
 import unicodedata
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
-from .common import es_relevante_perfil, titulo_parece_relevante
-from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
+from bs4 import BeautifulSoup
 
-USES_BROWSER = False
+from .common import nueva_pagina, titulo_parece_relevante
+from .http_common import date_posted, jobposting_jsonld, location_text, organization_name, text_from_html
+
+USES_BROWSER = True
 NOMBRE = "Trabajando.com"
+BASE_URL = "https://www.trabajando.cl"
+MAX_TERMINOS_RAPIDA = 4
+MAX_DETALLES_RAPIDA = 12
 _LAST_DIAGNOSTIC = {}
 
 
 def get_last_diagnostic():
     return dict(_LAST_DIAGNOSTIC)
 
-BASE_URL = "https://www.trabajando.cl"
-MAX_TERMINOS_RAPIDA = 4
-MAX_DETALLES_RAPIDA = 12
-
 
 def _slug(text: str) -> str:
-    value = unicodedata.normalize("NFKD", text.lower())
+    value = unicodedata.normalize("NFKD", (text or "").lower())
     value = "".join(c for c in value if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]+", "-", value).strip("-")
 
 
-def _links_busqueda(termino: str):
-    doc = soup(f"{BASE_URL}/trabajo-{_slug(termino)}", timeout=8)
-    items, seen = [], set()
-    for a in doc.find_all("a", href=True):
-        href = (a.get("href") or "").strip()
-        link = absolute(BASE_URL, href).split("?")[0]
+def _blocked(body: str) -> bool:
+    low = (body or "").lower()
+    return any(x in low for x in (
+        "captcha", "access denied", "verify you are human",
+        "verifica que eres humano", "cloudflare", "temporarily blocked",
+    ))
+
+
+def _links_busqueda(page, termino: str):
+    url = f"{BASE_URL}/trabajo-{_slug(termino)}"
+    page.goto(url, wait_until="domcontentloaded", timeout=15000)
+    try:
+        page.wait_for_selector('a[href*="/trabajo/"]', timeout=6000)
+    except Exception:
+        pass
+
+    body = page.locator("body").inner_text(timeout=3000) if page.locator("body").count() else ""
+    if _blocked(body):
+        _LAST_DIAGNOSTIC["blocked"] = True
+
+    links, seen = [], set()
+    anchors = page.locator('a[href*="/trabajo/"]')
+    for idx in range(min(anchors.count(), 250)):
+        a = anchors.nth(idx)
+        href = (a.get_attribute("href") or "").strip()
+        link = urljoin(BASE_URL, href).split("?")[0].split("#")[0]
         path = urlsplit(link).path
-        # Acepta href relativo o absoluto y variantes con/sin slug.
-        if not re.match(r"^/trabajo/\d+(?:-[a-z0-9-]+)?/?$", path, re.I):
+        if not re.match(r"^/trabajo/\d+(?:-[^/?#]+)?/?$", path, re.I):
             continue
         if link in seen:
             continue
         seen.add(link)
-        items.append((link, a.get_text(" ", strip=True)))
-    return items
+        try:
+            hint = a.inner_text(timeout=1000).strip()
+        except Exception:
+            hint = ""
+        links.append((link, hint))
+    return links
 
 
 def _empresa_fallback(doc) -> str:
-    # En las fichas suele existir un bloque "Publicada ... por <empresa>".
     text = doc.get_text("\n", strip=True)
-    match = re.search(r"Publicada\s+(?:hace\s+[^\n]+\s+)?por\s*\n?([^\n]{2,100})", text, re.I)
-    return match.group(1).strip() if match else ""
+    m = re.search(r"Publicada\s+(?:hace\s+[^\n]+\s+)?por\s*\n?([^\n]{2,100})", text, re.I)
+    return m.group(1).strip() if m else ""
 
 
-def _extraer(link: str):
-    doc = soup(link, timeout=8)
+def _extraer(page, link: str):
+    page.goto(link, wait_until="domcontentloaded", timeout=15000)
+    try:
+        page.wait_for_selector("h1", timeout=5000)
+    except Exception:
+        pass
+    html = page.content()
+    doc = BeautifulSoup(html, "html.parser")
     job = jobposting_jsonld(doc)
     if job:
         titulo = str(job.get("title") or "").strip()
@@ -79,18 +113,22 @@ def _extraer(link: str):
     }
 
 
-def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
+def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     global _LAST_DIAGNOSTIC
-    _LAST_DIAGNOSTIC = {"links_found": 0, "offers_extracted": 0, "detail_errors": 0, "query_errors": 0, "blocked": False}
-    limite_terminos = MAX_TERMINOS_RAPIDA if modo == "rapida" else 5
-    terminos = list(dict.fromkeys(terminos or []))[:limite_terminos]
+    _LAST_DIAGNOSTIC = {
+        "links_found": 0, "offers_extracted": 0, "detail_errors": 0,
+        "query_errors": 0, "blocked": False, "transport": "playwright",
+    }
+    page = nueva_pagina(browser)
+    limite_terminos = MAX_TERMINOS_RAPIDA if modo == "rapida" else 6
+    terms = list(dict.fromkeys(t for t in (terminos or []) if t))[:limite_terminos]
     items, seen = [], set()
 
-    for idx, termino in enumerate(terminos, 1):
+    for idx, termino in enumerate(terms, 1):
         if progreso:
-            progreso(f"Trabajando.com · {idx}/{len(terminos)} · {termino}")
+            progreso(f"Trabajando.com · {idx}/{len(terms)} · {termino}")
         try:
-            for link, hint in _links_busqueda(termino):
+            for link, hint in _links_busqueda(page, termino):
                 if link not in seen:
                     seen.add(link)
                     items.append((link, hint))
@@ -100,19 +138,18 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
                 progreso(f"Trabajando.com · consulta omitida: {type(exc).__name__}")
 
     _LAST_DIAGNOSTIC["links_found"] = len(items)
-    items.sort(key=lambda item: 0 if titulo_parece_relevante(item[1], terminos) else 1)
-    limite = MAX_DETALLES_RAPIDA if modo == "rapida" else 18
+    items.sort(key=lambda x: 0 if titulo_parece_relevante(x[1], terms) else 1)
+
     ofertas = []
+    limite = MAX_DETALLES_RAPIDA if modo == "rapida" else 20
     for idx, (link, _hint) in enumerate(items[:limite], 1):
         if progreso:
-            progreso(f"Trabajando.com · validando {idx}/{min(len(items), limite)}")
+            progreso(f"Trabajando.com · leyendo {idx}/{min(len(items), limite)}")
         try:
-            oferta = _extraer(link)
+            ofertas.append(_extraer(page, link))
             _LAST_DIAGNOSTIC["offers_extracted"] += 1
-            # El filtro definitivo se aplica en collector.py para poder diagnosticar
-            # correctamente si la fuente extrae ofertas que luego no calzan.
-            ofertas.append(oferta)
         except Exception:
             _LAST_DIAGNOSTIC["detail_errors"] += 1
-            continue
+
+    page.close()
     return ofertas

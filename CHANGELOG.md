@@ -1,3 +1,13 @@
+## 5.7.10 — Recuperación de Laborum, Trabajando.com y BNE
+- Laborum consulta primero el endpoint público `/api/avisos/searchV2` de Jobint y evita depender del HTML bloqueado por anti-bot.
+- Laborum incorpora fallback por HTML público y, como última alternativa, Playwright.
+- Trabajando.com cambia de consultas HTTP cortas a navegación Playwright sobre sus búsquedas y fichas públicas.
+- BNE usa selectores tolerantes para el campo de búsqueda y prueba Enter + botón Buscar.
+- BNE admite ofertas internas `/oferta/...` y externas `/ofertaEmpleoExterno/...`.
+- BNE incorpora fallback al listado público cuando el formulario cambia.
+- Los tres adaptadores conservan diagnóstico de enlaces, fichas, bloqueos y transporte utilizado.
+- 72 pruebas automatizadas aprobadas.
+
 ## 5.7.9 — Gestión editable de postulaciones
 - Las tarjetas de Postulaciones ahora permiten editar estado y notas directamente.
 - Se puede quitar una vacante del seguimiento con confirmación.

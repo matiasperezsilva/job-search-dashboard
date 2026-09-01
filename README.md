@@ -182,3 +182,7 @@ La búsqueda distingue entre ausencia de coincidencias y fallos técnicos del po
 ## Gestión de postulaciones
 
 La sección de seguimiento permite editar el estado y las notas de cada proceso. Si una vacante fue marcada por error, **Quitar seguimiento** elimina únicamente el registro de seguimiento y devuelve la oferta a Oportunidades como `Sin gestionar`; la vacante no se elimina de la base.
+
+## Estrategia de fuentes resistentes
+
+Los portales no se consultan todos de la misma forma. Laborum prioriza su endpoint público de búsqueda y usa HTML/navegador como fallback; Trabajando.com utiliza navegación de sus páginas públicas para evitar timeouts del transporte HTTP desde hosting; BNE tolera cambios de formulario y reconoce tanto ofertas internas como ofertas externas. Cada fuente informa qué transporte utilizó y en qué etapa falló.

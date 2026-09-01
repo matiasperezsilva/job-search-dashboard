@@ -115,6 +115,7 @@ def recolectar(fuentes, terminos=None, headless=True, modo="rapida", progreso=No
                     "detail_errors": detalle_fallos,
                     "query_errors": query_errors,
                     "blocked": blocked,
+                    "transport": source_diag.get("transport", "browser" if uses_browser else "http"),
                 }
                 estadisticas.append(stat)
                 if progreso:
