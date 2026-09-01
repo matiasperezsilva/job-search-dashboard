@@ -39,6 +39,9 @@ export type Job = {
   favorite?: boolean;
   hidden?: boolean;
   hidden_at?: string | null;
+  is_old?: boolean;
+  duplicate_sources?: string[];
+  duplicate_count?: number;
 };
 
 export type DashboardData = {
