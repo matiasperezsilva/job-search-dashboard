@@ -3,7 +3,7 @@ services:
     name: job-search-dashboard
     runtime: docker
     plan: free
-    healthCheckPath: /_stcore/health
+    healthCheckPath: /api/health
     envVars:
       - key: SUPABASE_URL
         sync: false
