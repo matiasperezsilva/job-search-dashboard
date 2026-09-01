@@ -1,4 +1,4 @@
-export type View = "dashboard" | "search" | "jobs" | "applications" | "profile";
+export type View = "dashboard" | "search" | "jobs" | "applications" | "profile" | "account";
 
 export type MatchComponent = {
   label: string;
@@ -13,6 +13,9 @@ export type MatchBreakdown = {
   verdict?: string;
   components?: MatchComponent[];
   pre_clamp_score?: number;
+  positive_score?: number;
+  positive_score_raw?: number;
+  penalties_total?: number;
   final_score?: number;
   area?: string;
   matched_roles?: string[];
@@ -64,6 +67,8 @@ export type ProfileData = {
       roles_objetivo?: string[];
       seniority_estimado?: string;
       anos_experiencia?: number | null;
+      meses_experiencia?: number | null;
+      experiencia_fuente?: string | null;
       caracteres_cv?: number;
     };
     preferencias?: {

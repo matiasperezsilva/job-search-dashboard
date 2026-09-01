@@ -7,7 +7,7 @@ import { api } from "../lib/api";
 import type { DashboardData, Job, ProfileData, SearchRun, View } from "../lib/types";
 import {
   HomeIcon, SearchIcon, BriefcaseIcon, CheckIcon, FileIcon, LogoutIcon,
-  ExternalIcon, SparkIcon, UploadIcon, ArrowRightIcon, RefreshIcon,
+  ExternalIcon, SparkIcon, UploadIcon, ArrowRightIcon, RefreshIcon, SettingsIcon,
 } from "./icons";
 
 const SOURCES = ["GetOnBoard", "Computrabajo", "ChileTrabajos", "Laborum", "Trabajando.com", "BNE", "LinkedIn"];
@@ -45,7 +45,8 @@ export default function AppClient({ supabaseUrl, supabaseKey, forceRecovery = fa
           {view === "search" && <SearchPage token={session.access_token} go={setView} />}
           {view === "jobs" && <JobsPage token={session.access_token} />}
           {view === "applications" && <ApplicationsPage token={session.access_token} />}
-          {view === "profile" && <ProfilePage token={session.access_token} supabase={supabase} />}
+          {view === "profile" && <ProfilePage token={session.access_token} />}
+          {view === "account" && <AccountPage supabase={supabase} email={session.user.email || ""} />}
         </div>
       </main>
     </div>
@@ -137,6 +138,7 @@ function Sidebar({ view, setView, email, onLogout }: { view: View; setView: (v: 
     {id:"jobs",label:"Oportunidades",icon:<BriefcaseIcon/>},
     {id:"applications",label:"Postulaciones",icon:<CheckIcon/>,group:"SEGUIMIENTO"},
     {id:"profile",label:"Mi currículum",icon:<FileIcon/>,group:"PERFIL"},
+    {id:"account",label:"Cuenta y seguridad",icon:<SettingsIcon/>,group:"CUENTA"},
   ];
   return <aside className="sidebar">
     <div className="sidebar-brand"><div className="brand-mark">JS</div><div><b>Job Search</b><span>Career workspace</span></div></div>
@@ -202,7 +204,7 @@ function SearchProgress({run}:{run:SearchRun}){
 
 
 function SearchResult({result,onView}:{result:any;onView:()=>void}){
-  return <section className="panel result-panel"><div className="result-top"><div><span className="success-icon">✓</span><div><h3>Búsqueda finalizada</h3><p>{result.found} vacantes relevantes · {result.new} nuevas guardadas</p></div></div><button className="btn dark" onClick={onView}>Ver oportunidades <ArrowRightIcon size={16}/></button></div><div className="stats-strip">{(result.stats||[]).map((s:any)=><div key={s.fuente}><b>{s.fuente}</b><span>{s.cantidad} resultados · {s.segundos}s</span></div>)}</div>{(result.errors||[]).length>0&&<div className="source-errors">{result.errors.map((e:any)=><span key={e.fuente}>{e.fuente}: {e.error}</span>)}</div>}</section>
+  return <section className="panel result-panel"><div className="result-top"><div><span className="success-icon">✓</span><div><h3>Búsqueda finalizada</h3><p>{result.found} vacantes relevantes · {result.new} nuevas guardadas</p></div></div><button className="btn dark" onClick={onView}>Ver oportunidades <ArrowRightIcon size={16}/></button></div><div className="stats-strip">{(result.stats||[]).map((s:any)=><div className={`source-stat ${s.estado||""}`} key={s.fuente}><b>{s.fuente}</b><span>{s.cantidad>0?`${s.cantidad} resultados · ${s.segundos}s`:s.ok?`Sin coincidencias válidas · ${s.segundos}s`:`Error de fuente · ${s.segundos}s`}</span></div>)}</div>{(result.errors||[]).length>0&&<div className="source-errors">{result.errors.map((e:any)=><span key={e.fuente}>{e.fuente}: {e.error}</span>)}</div>}</section>
 }
 
 function JobsPage({ token }: { token:string }) {
@@ -307,6 +309,7 @@ function MatchBreakdownView({job}:{job:Job}){
         </div>
       })}
     </div>
+    {typeof breakdown?.positive_score==="number"&&typeof breakdown?.penalties_total==="number"&&breakdown.penalties_total<0&&<div className="score-formula-note">Base positiva: <b>{breakdown.positive_score}/100</b> · Penalizaciones: <b>{breakdown.penalties_total}</b> · Resultado: <b>{job.puntaje}/100</b></div>}
     {(breakdown?.matched_roles?.length||breakdown?.matched_skills?.length)?<div className="match-evidence">
       {!!breakdown?.matched_roles?.length&&<div><span>Roles coincidentes</span><div className="chip-wrap">{breakdown.matched_roles.map(x=><Badge key={x} text={x} tone="blue"/>)}</div></div>}
       {!!breakdown?.matched_skills?.length&&<div><span>Competencias coincidentes</span><div className="chip-wrap">{breakdown.matched_skills.map(x=><Badge key={x} text={x}/>)}</div></div>}
@@ -322,12 +325,68 @@ function Tracking({job,token,onSaved}:{job:Job;token:string;onSaved:()=>void}){
 }
 
 function Letter({job,token}:{job:Job;token:string}){
-  const [content,setContent]=useState("");const [mode,setMode]=useState("local");const [loading,setLoading]=useState(false);const [msg,setMsg]=useState("");
+  const [content,setContent]=useState("");
+  const [mode,setMode]=useState("local");
+  const [loading,setLoading]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [saveState,setSaveState]=useState<"idle"|"saved"|"error">("idle");
+  const [msg,setMsg]=useState("");
+  const [savedAt,setSavedAt]=useState<string|null>(null);
   const [ai,setAi]=useState<{configured:boolean;provider?:string|null;model?:string|null}>({configured:false});
-  useEffect(()=>{api<any>(`/jobs/${job.id}/letter`,token).then(r=>{setContent(r.contenido||"");setMode(r.modo||"local")}).catch(()=>{});api<any>(`/settings/ai`,token).then(setAi).catch(()=>{})},[job.id,token]);
-  const generate=async()=>{setLoading(true);setMsg("");try{const r=await api<any>(`/jobs/${job.id}/letter/generate`,token,{method:"POST",body:JSON.stringify({mode})});setContent(r.content);setMsg(mode==="inteligente"?"Carta generada con Gemini.":"Borrador local generado.")}catch(e){setMsg(e instanceof Error?e.message:"Error")}finally{setLoading(false)}};
-  const save=async()=>{await api(`/jobs/${job.id}/letter`,token,{method:"PUT",body:JSON.stringify({content,mode})});setMsg("Borrador guardado.")};
-  return <div className="detail-body form-stack"><div className="segmented compact"><button className={mode==="local"?"active":""} onClick={()=>setMode("local")}>Local</button><button className={mode==="inteligente"?"active":""} onClick={()=>setMode("inteligente")}>Inteligente · Gemini</button></div>{mode==="inteligente"&&<div className={`ai-config-note ${ai.configured?"ready":"missing"}`}>{ai.configured?<>✓ Gemini listo · <b>{ai.model}</b></>:<>Falta configurar <b>GEMINI_API_KEY</b> en Render.</>}</div>}<button className="btn dark" onClick={generate} disabled={loading||(mode==="inteligente"&&!ai.configured)}><SparkIcon size={17}/>{loading?"Generando…":mode==="inteligente"?"Generar con Gemini":"Generar borrador local"}</button><label>Borrador<textarea rows={13} value={content} onChange={e=>setContent(e.target.value)} placeholder="Genera o escribe aquí tu carta…"/></label><div className="button-row"><button className="btn primary" onClick={save} disabled={!content.trim()}>Guardar borrador</button><button className="btn ghost" disabled={!content.trim()} onClick={()=>downloadText(content,`carta_${safeName(job.empresa||"empresa")}.txt`)}>Descargar</button></div>{msg&&<small className="muted">{msg}</small>}</div>
+
+  useEffect(()=>{
+    setSaveState("idle");setMsg("");setSavedAt(null);
+    api<any>(`/jobs/${job.id}/letter`,token)
+      .then(r=>{setContent(r.contenido||"");setMode(r.modo||"local");setSavedAt(r.updated_at||null);if(r.contenido)setSaveState("saved")})
+      .catch(e=>{setMsg(e instanceof Error?e.message:"No se pudo cargar el borrador.");setSaveState("error")});
+    api<any>(`/settings/ai`,token).then(setAi).catch(()=>{});
+  },[job.id,token]);
+
+  const generate=async()=>{
+    setLoading(true);setMsg("");setSaveState("idle");
+    try{
+      const r=await api<any>(`/jobs/${job.id}/letter/generate`,token,{method:"POST",body:JSON.stringify({mode})});
+      setContent(r.content);
+      setMsg(mode==="inteligente"?"Carta generada con Gemini. Revísala y guárdala cuando estés conforme.":"Borrador local generado. Revísalo y guárdalo cuando estés conforme.");
+    }catch(e){setMsg(e instanceof Error?e.message:"Error al generar la carta");setSaveState("error")}
+    finally{setLoading(false)}
+  };
+
+  const save=async()=>{
+    if(!content.trim())return;
+    setSaving(true);setMsg("");setSaveState("idle");
+    try{
+      const r=await api<any>(`/jobs/${job.id}/letter`,token,{method:"PUT",body:JSON.stringify({content,mode})});
+      // Relectura adicional para detectar cualquier inconsistencia de persistencia.
+      const verify=await api<any>(`/jobs/${job.id}/letter`,token);
+      if((verify.contenido||"").trim()!==content.trim()){
+        throw new Error("El servidor respondió, pero el borrador guardado no coincide con el editor.");
+      }
+      setSavedAt(verify.updated_at||r.updated_at||new Date().toISOString());
+      setSaveState("saved");
+      setMsg("Borrador guardado correctamente.");
+    }catch(e){
+      setSaveState("error");
+      setMsg(e instanceof Error?e.message:"No se pudo guardar el borrador.");
+    }finally{setSaving(false)}
+  };
+
+  const onContentChange=(value:string)=>{
+    setContent(value);
+    if(saveState==="saved")setSaveState("idle");
+  };
+
+  return <div className="detail-body form-stack">
+    <div className="segmented compact"><button className={mode==="local"?"active":""} onClick={()=>{setMode("local");setSaveState("idle")}}>Local</button><button className={mode==="inteligente"?"active":""} onClick={()=>{setMode("inteligente");setSaveState("idle")}}>Inteligente · Gemini</button></div>
+    {mode==="inteligente"&&<div className={`ai-config-note ${ai.configured?"ready":"missing"}`}>{ai.configured?<>✓ Gemini listo · <b>{ai.model}</b></>:<>Falta configurar <b>GEMINI_API_KEY</b> en Render.</>}</div>}
+    <button className="btn dark" onClick={generate} disabled={loading||(mode==="inteligente"&&!ai.configured)}><SparkIcon size={17}/>{loading?"Generando…":mode==="inteligente"?"Generar con Gemini":"Generar borrador local"}</button>
+    <label>Borrador<textarea rows={13} value={content} onChange={e=>onContentChange(e.target.value)} placeholder="Genera o escribe aquí tu carta…"/></label>
+    <div className="letter-save-row">
+      <div className="button-row"><button className={`btn primary ${saveState==="saved"?"saved-button":""}`} onClick={save} disabled={!content.trim()||saving}>{saving?"Guardando…":saveState==="saved"?"Guardado ✓":"Guardar borrador"}</button><button className="btn ghost" disabled={!content.trim()} onClick={()=>downloadText(content,`carta_${safeName(job.empresa||"empresa")}.txt`)}>Descargar</button></div>
+      <div className={`letter-save-status ${saveState}`}>{saveState==="saved"?<>✓ Guardado{savedAt?` · ${formatSavedTime(savedAt)}`:""}</>:saveState==="error"?"No se pudo guardar":content.trim()?"Cambios sin guardar":""}</div>
+    </div>
+    {msg&&<div className={`notice subtle ${saveState==="error"?"error-inline":""}`}>{msg}</div>}
+  </div>
 }
 
 function ApplicationsPage({token}:{token:string}){
@@ -336,7 +395,7 @@ function ApplicationsPage({token}:{token:string}){
   return <><PageHeader eyebrow="SEGUIMIENTO" title="Tus procesos, en orden." text="Conserva contexto de cada postulación y vuelve rápidamente a la publicación original."/><div className="filters one"><label>Estado<select value={state} onChange={e=>setState(e.target.value)}><option value="">Todos</option>{["Guardada","Postulada","Entrevista","Rechazada","Oferta recibida"].map(s=><option key={s}>{s}</option>)}</select></label></div>{loading?<SectionLoader/>:<div className="application-grid">{jobs.map(j=><article className="application-card" key={j.id}><div><Badge text={j.estado||""} tone="blue"/><h3>{j.titulo}</h3><p>{j.empresa||"Empresa no informada"}</p></div><p className="app-notes">{j.notas||"Sin notas todavía."}</p><div className="app-foot"><span>{j.fuente} · {j.puntaje} pts</span>{j.link&&<a href={j.link} target="_blank" rel="noopener noreferrer">Ver oferta <ExternalIcon size={14}/></a>}</div></article>)}{jobs.length===0&&<EmptyMini text="Aún no tienes procesos gestionados."/>}</div>}</>;
 }
 
-function ProfilePage({token,supabase}:{token:string;supabase:SupabaseClient}){
+function ProfilePage({token}:{token:string}){
   const [profile,setProfile]=useState<ProfileData|null>(null);
   const [file,setFile]=useState<File|null>(null);
   const [uploading,setUploading]=useState(false);
@@ -396,23 +455,6 @@ function ProfilePage({token,supabase}:{token:string;supabase:SupabaseClient}){
     finally{setPrefSaving(false)}
   };
 
-  const [currentPassword,setCurrentPassword]=useState("");
-  const [newPassword,setNewPassword]=useState("");
-  const [securityMsg,setSecurityMsg]=useState("");
-  const [securityLoading,setSecurityLoading]=useState(false);
-  const changePassword=async()=>{
-    setSecurityMsg("");
-    if(newPassword.length<8){setSecurityMsg("La nueva contraseña debe tener al menos 8 caracteres.");return;}
-    setSecurityLoading(true);
-    try{
-      const {error}=await supabase.auth.updateUser({password:newPassword,current_password:currentPassword});
-      if(error)throw error;
-      setSecurityMsg("Contraseña actualizada correctamente.");
-      setCurrentPassword("");setNewPassword("");
-    }catch(e){setSecurityMsg(authErrorMessage(e instanceof Error?e.message:"No se pudo actualizar la contraseña."));}
-    finally{setSecurityLoading(false)}
-  };
-
   const summary=profile?.profile?.resumen;
   return <>
     <PageHeader eyebrow="PERFIL" title="Tu perfil profesional define la búsqueda." text="Combina lo que acredita tu CV con los cargos y condiciones laborales que realmente quieres."/>
@@ -430,7 +472,7 @@ function ProfilePage({token,supabase}:{token:string;supabase:SupabaseClient}){
         {profile?.active?<>
           <ProfileBlock title="Áreas detectadas" items={summary?.areas_detectadas||[]}/>
           <ProfileBlock title="Competencias detectadas" items={summary?.skills_detectadas||[]}/>
-          {summary?.anos_experiencia!==undefined&&summary?.anos_experiencia!==null&&<div className="profile-experience"><span>Experiencia profesional estimada</span><b>{summary.anos_experiencia>0?`${summary.anos_experiencia} años`:"No determinada con seguridad"}</b><small>Se usa como señal de match cuando la oferta exige años explícitos.</small></div>}
+          {summary?.anos_experiencia!==undefined&&summary?.anos_experiencia!==null&&<div className="profile-experience"><span>Experiencia profesional estimada</span><b>{formatExperience(summary.anos_experiencia,summary.meses_experiencia)}</b><small>{summary.experiencia_fuente==="rangos_fechas"?"Calculada desde los rangos de fechas de experiencia laboral del CV.":"Se usa como señal de match cuando la oferta exige años explícitos."}</small></div>}
           <label className="field-label">Cargos objetivo<textarea rows={5} value={terms} onChange={e=>setTerms(e.target.value)}/><small>Puedes editarlos libremente: son los cargos que se consultarán en los portales de empleo.</small></label>
           <button className="btn dark" onClick={saveTerms}>Guardar términos</button>
         </>:<EmptyMini text="Sube un CV para construir tu perfil."/>}
@@ -453,18 +495,34 @@ function ProfilePage({token,supabase}:{token:string;supabase:SupabaseClient}){
       <div className="preference-actions"><button className="btn primary" onClick={savePreferences} disabled={prefSaving}>{prefSaving?"Guardando…":"Guardar preferencias"}</button>{prefMsg&&<span className="muted">{prefMsg}</span>}</div>
     </section>}
 
-    <section className="panel security-panel">
-      <div className="section-kicker">SEGURIDAD</div>
-      <div className="security-grid">
-        <div><h3>Cambiar contraseña</h3><p className="muted">Usa una contraseña única para esta aplicación. No reutilices la de tu correo u otros servicios.</p></div>
-        <div className="form-stack">
-          <label>Contraseña actual<input type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} autoComplete="current-password"/></label>
-          <label>Nueva contraseña<input type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} minLength={8} autoComplete="new-password"/></label>
-          <button className="btn dark" disabled={securityLoading||!currentPassword||!newPassword} onClick={changePassword}>{securityLoading?"Actualizando…":"Cambiar contraseña"}</button>
-          {securityMsg&&<div className="notice subtle">{securityMsg}</div>}
-        </div>
-      </div>
-    </section>
+  </>;
+}
+
+function AccountPage({supabase,email}:{supabase:SupabaseClient;email:string}){
+  const [currentPassword,setCurrentPassword]=useState("");
+  const [newPassword,setNewPassword]=useState("");
+  const [confirmPassword,setConfirmPassword]=useState("");
+  const [securityMsg,setSecurityMsg]=useState("");
+  const [securityLoading,setSecurityLoading]=useState(false);
+  const changePassword=async()=>{
+    setSecurityMsg("");
+    if(newPassword.length<8){setSecurityMsg("La nueva contraseña debe tener al menos 8 caracteres.");return;}
+    if(newPassword!==confirmPassword){setSecurityMsg("Las nuevas contraseñas no coinciden.");return;}
+    setSecurityLoading(true);
+    try{
+      const {error}=await supabase.auth.updateUser({password:newPassword,current_password:currentPassword});
+      if(error)throw error;
+      setSecurityMsg("Contraseña actualizada correctamente.");
+      setCurrentPassword("");setNewPassword("");setConfirmPassword("");
+    }catch(e){setSecurityMsg(authErrorMessage(e instanceof Error?e.message:"No se pudo actualizar la contraseña."));}
+    finally{setSecurityLoading(false)}
+  };
+  return <>
+    <PageHeader eyebrow="CUENTA" title="Cuenta y seguridad." text="Administra tu acceso sin mezclarlo con la información profesional de tu currículum."/>
+    <div className="account-grid">
+      <section className="panel account-summary"><div className="section-kicker">CUENTA</div><h3>Datos de acceso</h3><div className="account-row"><span>Correo electrónico</span><b>{email}</b></div><div className="notice subtle">Tu autenticación está administrada por Supabase Auth. Job Search no almacena tu contraseña en sus tablas.</div></section>
+      <section className="panel security-panel"><div className="section-kicker">SEGURIDAD</div><h3>Cambiar contraseña</h3><p className="muted">Usa una contraseña única para esta aplicación y evita reutilizar la de tu correo u otros servicios.</p><div className="form-stack security-form"><label>Contraseña actual<input type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} autoComplete="current-password"/></label><label>Nueva contraseña<input type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} minLength={8} autoComplete="new-password"/></label><label>Repetir nueva contraseña<input type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} minLength={8} autoComplete="new-password"/></label><button className="btn dark" disabled={securityLoading||!currentPassword||!newPassword||!confirmPassword} onClick={changePassword}>{securityLoading?"Actualizando…":"Cambiar contraseña"}</button>{securityMsg&&<div className="notice subtle">{securityMsg}</div>}</div></section>
+    </div>
   </>;
 }
 
@@ -478,5 +536,18 @@ function ErrorBox({text}:{text:string}){return <div className="callout error"><d
 function SectionLoader(){return <div className="section-loader"><div className="loader"/><span>Cargando…</span></div>}
 function EmptyMini({text}:{text:string}){return <div className="empty-mini"><div className="empty-dot">·</div><span>{text}</span></div>}
 function EmptyDetail(){return <div className="empty-detail"><BriefcaseIcon size={34}/><h3>Selecciona una oportunidad</h3><p>Verás descripción, calce, seguimiento, carta y el enlace directo para postular.</p></div>}
+function formatSavedTime(raw:string){
+  const d=new Date(raw);
+  if(Number.isNaN(d.getTime()))return "recién";
+  return new Intl.DateTimeFormat("es-CL",{hour:"2-digit",minute:"2-digit"}).format(d);
+}
+
+function formatExperience(years?:number|null,months?:number|null){
+  const m=months??(years!=null?Math.round(years*12):null);
+  if(m==null)return "No determinada con seguridad";
+  if(m<12)return `${m} ${m===1?"mes":"meses"}`;
+  const y=Math.floor(m/12), rest=m%12;
+  return rest?`${y} ${y===1?"año":"años"} y ${rest} ${rest===1?"mes":"meses"}`:`${y} ${y===1?"año":"años"}`;
+}
 function safeName(s:string){return s.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi,"_").replace(/^_|_$/g,"")}
 function downloadText(content:string,name:string){const blob=new Blob([content],{type:"text/plain;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}

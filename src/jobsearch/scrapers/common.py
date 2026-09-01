@@ -129,16 +129,45 @@ def contexto_calidad_no_software(titulo: str, descripcion: str = "") -> int:
     return sum(1 for s in _NON_SOFTWARE_QUALITY if _norm(s) in texto)
 
 
+def _tokens_busqueda(texto: str):
+    stop = {
+        "de", "del", "la", "el", "los", "las", "para", "con", "en", "y", "o",
+        "junior", "jr", "semi", "senior", "sr", "remoto", "hibrido", "híbrido",
+        "presencial", "chile", "santiago",
+    }
+    return [t for t in re.findall(r"[a-z0-9+#.]{2,}", _norm(texto)) if t not in stop]
+
+
 def titulo_parece_relevante(titulo, terminos=None):
-    """Prefiltro transversal: usa roles objetivo del perfil, no una lista fija TI."""
+    """Prefiltro deliberadamente permisivo.
+
+    Los términos de búsqueda suelen ser frases ("qa software", "cloud support"),
+    mientras que los portales devuelven títulos como "Analista QA". Exigir la frase
+    completa provocaba falsos ceros. El scoring definitivo decide el calce después.
+    """
     titulo = (titulo or "").strip()
     if not titulo or es_pagina_busqueda(titulo):
         return False
-    t = _norm(titulo)
-    valid_terms = [_norm(x) for x in (terminos or []) if len((x or "").strip()) >= 3]
-    if not valid_terms:
+    if not terminos:
         return True
-    return any(term in t or t in term for term in valid_terms)
+
+    title_norm = _norm(titulo)
+    title_tokens = set(_tokens_busqueda(titulo))
+    for termino in terminos:
+        term_norm = _norm(termino)
+        if not term_norm:
+            continue
+        if term_norm in title_norm or title_norm in term_norm:
+            return True
+        term_tokens = set(_tokens_busqueda(termino))
+        if not term_tokens:
+            continue
+        overlap = title_tokens & term_tokens
+        # Una palabra distintiva compartida basta para el prefiltro; el motor de
+        # matching posterior evita que "cloud" convierta ventas en Cloud Engineer.
+        if overlap:
+            return True
+    return False
 
 
 def es_relevante_perfil(titulo, descripcion="", terminos=None):

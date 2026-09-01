@@ -6,7 +6,7 @@ resultados de búsqueda y nunca se guardan como ofertas.
 
 import re
 import unicodedata
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from .common import es_relevante_perfil
 from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
@@ -32,11 +32,12 @@ def _links_busqueda(termino):
     doc = soup(url, timeout=10)
     links, seen = [], set()
     for a in doc.find_all("a", href=True):
-        href = a.get("href", "")
-        # Clave: NO aceptar /trabajo-de-* ni páginas regionales/listados.
-        if not href.startswith(DETAIL_PREFIX):
-            continue
+        href = (a.get("href", "") or "").strip()
+        # Puede venir relativo o absoluto. Validamos el path, no el string crudo.
         link = absolute(BASE_URL, href)
+        path = urlsplit(link).path
+        if not path.startswith(DETAIL_PREFIX):
+            continue
         if link not in seen:
             seen.add(link); links.append(link)
     return links

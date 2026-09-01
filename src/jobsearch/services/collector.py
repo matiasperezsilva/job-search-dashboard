@@ -54,11 +54,11 @@ def recolectar(fuentes, terminos=None, headless=True, modo="rapida", progreso=No
                 ofertas.extend(resultado)
                 if on_source_result:
                     on_source_result(nombre, resultado)
-                stat={"fuente": nombre, "cantidad": len(resultado), "segundos": round(time.monotonic()-inicio, 1), "ok": True}; estadisticas.append(stat)
+                stat={"fuente": nombre, "cantidad": len(resultado), "segundos": round(time.monotonic()-inicio, 1), "ok": True, "estado": "ok" if resultado else "empty"}; estadisticas.append(stat)
                 if progreso: progreso({"tipo":"resultado_fuente","fuente":nombre,"mensaje":f"{nombre}: {len(resultado)} vacantes relevantes","estadistica":stat})
             except Exception as exc:
                 errores.append({"fuente": nombre, "error": str(exc)})
-                stat={"fuente": nombre, "cantidad": 0, "segundos": round(time.monotonic()-inicio, 1), "ok": False}; estadisticas.append(stat)
+                stat={"fuente": nombre, "cantidad": 0, "segundos": round(time.monotonic()-inicio, 1), "ok": False, "estado": "error"}; estadisticas.append(stat)
                 if progreso: progreso({"tipo":"resultado_fuente","fuente":nombre,"mensaje":f"{nombre}: no se pudo completar","estadistica":stat})
     finally:
         if browser is not None:

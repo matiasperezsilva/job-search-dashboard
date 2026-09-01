@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from urllib.parse import urlsplit
 
 from .common import es_relevante_perfil, titulo_parece_relevante
 from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
@@ -9,8 +10,8 @@ from .http_common import absolute, date_posted, jobposting_jsonld, location_text
 USES_BROWSER = False
 NOMBRE = "Trabajando.com"
 BASE_URL = "https://www.trabajando.cl"
-MAX_TERMINOS_RAPIDA = 2
-MAX_DETALLES_RAPIDA = 8
+MAX_TERMINOS_RAPIDA = 4
+MAX_DETALLES_RAPIDA = 12
 
 
 def _slug(text: str) -> str:
@@ -24,10 +25,11 @@ def _links_busqueda(termino: str):
     items, seen = [], set()
     for a in doc.find_all("a", href=True):
         href = (a.get("href") or "").strip()
-        # Las fichas individuales actuales usan /trabajo/<id>-<slug>.
-        if not re.match(r"^/trabajo/\d+-[a-z0-9-]+/?$", href, re.I):
-            continue
         link = absolute(BASE_URL, href).split("?")[0]
+        path = urlsplit(link).path
+        # Acepta href relativo o absoluto y variantes con/sin slug.
+        if not re.match(r"^/trabajo/\d+(?:-[a-z0-9-]+)?/?$", path, re.I):
+            continue
         if link in seen:
             continue
         seen.add(link)

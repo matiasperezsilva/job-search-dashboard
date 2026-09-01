@@ -156,3 +156,21 @@ Cuando una fuente publica una fecha estructurada (`datePosted`), se conserva com
 La vista de oportunidades agrupa de forma conservadora publicaciones equivalentes cuando el cargo y la empresa coinciden claramente y las fechas son cercanas. No se fusionan vacantes sin empresa identificable.
 
 Las ofertas con más de 30 días quedan fuera de la vista principal por defecto para reducir ruido, pero nunca se eliminan. El usuario puede activar **Incluir antiguas**, y las favoritas o con seguimiento se mantienen visibles independientemente de la antigüedad.
+
+## Cuenta y seguridad
+
+La administración de contraseña vive en una sección independiente del currículum. El perfil profesional contiene únicamente CV, cargos objetivo y preferencias laborales.
+
+## Robustez de portales
+
+Los adaptadores aceptan enlaces relativos o absolutos y usan un prefiltro permisivo por tokens. El scoring completo sigue siendo la autoridad final para decidir si una vacante es relevante. Las fuentes que responden sin coincidencias se muestran de forma distinta a las fuentes que fallan.
+
+## Cálculo de experiencia profesional
+
+El motor calcula experiencia desde rangos de fechas dentro del bloque de experiencia laboral, fusiona períodos superpuestos y excluye expresamente proyectos de título, tesis y proyectos académicos del total profesional. Si el CV declara menos de un año, la interfaz muestra meses.
+
+El score explicable limita primero las señales positivas a 100 y luego aplica penalizaciones. De esta forma una incompatibilidad visible —por ejemplo, modalidad presencial cuando el usuario solo acepta remoto— siempre reduce el puntaje final.
+
+## Guardado verificable de cartas
+
+Los borradores de cartas se almacenan en Supabase por usuario y oferta. La interfaz muestra el estado del guardado y verifica el contenido persistido mediante una relectura posterior, evitando confirmaciones falsas o errores silenciosos.

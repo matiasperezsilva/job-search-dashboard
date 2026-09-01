@@ -20,7 +20,7 @@ from jobsearch.services.profile_ai import enriquecer_perfil_con_gemini
 from jobsearch.services.letters import ConfigAPI, config_api_desde_entorno, config_gemini_desde_entorno, generar_borrador_local, generar_carta_gemini, generar_carta_inteligente
 from jobsearch.services.scoring import evaluar_oferta
 
-app = FastAPI(title="Job Search API", version="5.6")
+app = FastAPI(title="Job Search API", version="5.7.5")
 
 
 def auth_context(authorization: Annotated[str | None, Header()] = None) -> UserContext:
@@ -298,5 +298,15 @@ def generate_letter(job_id: str, body: LetterGenerateBody, r: Repository = Depen
 
 @app.put("/jobs/{job_id}/letter")
 def save_letter(job_id: str, body: LetterSaveBody, r: Repository = Depends(repo)):
-    r.save_letter(job_id, body.content, body.mode)
-    return {"ok": True}
+    try:
+        saved = r.save_letter(job_id, body.content, body.mode)
+        return {
+            "ok": True,
+            "contenido": saved.get("contenido", ""),
+            "modo": saved.get("modo", body.mode),
+            "updated_at": saved.get("updated_at"),
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from exc

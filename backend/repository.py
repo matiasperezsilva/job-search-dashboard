@@ -272,10 +272,21 @@ class Repository:
         return rows[0] if rows else None
 
     def save_letter(self, job_id_: str, content: str, mode: str):
-        return self.db.upsert("letters", {
+        clean = (content or "").strip()
+        if not clean:
+            raise ValueError("El borrador está vacío.")
+        if mode not in {"local", "inteligente"}:
+            raise ValueError("Modo de carta no válido.")
+        self.db.upsert("letters", {
             "user_id": self.ctx.user_id, "job_id": job_id_, "modo": mode,
-            "contenido": content, "updated_at": now_iso(),
+            "contenido": clean, "updated_at": now_iso(),
         }, "user_id,job_id")
+        # Verificación de persistencia: la API solo confirma éxito si puede releer
+        # exactamente la carta del usuario autenticado.
+        saved = self.letter(job_id_)
+        if not saved:
+            raise RuntimeError("El borrador no pudo verificarse después de guardarlo.")
+        return saved
 
     def dashboard(self):
         rows = self.jobs(0)

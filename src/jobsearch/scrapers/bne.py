@@ -19,13 +19,18 @@ def _buscar_links_por_termino(page, termino):
     print(f"  [{NOMBRE}] Buscando '{termino}'")
     page.goto(f"{BASE_URL}/ofertas?mostrar=empleo", wait_until="domcontentloaded", timeout=8000)
     page.wait_for_timeout(250)
-    page.fill('input[placeholder*="palabra clave"]', termino)
-    page.click('button:has-text("BUSCAR")')
-    page.wait_for_timeout(300)
+    campo = page.locator('input[placeholder*="palabra" i], input[placeholder*="profesi" i]').first
+    campo.fill(termino)
+    page.locator('button:has-text("BUSCAR"), input[type="submit"]').first.click()
+    try:
+        page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    page.wait_for_timeout(800)
 
     links = set()
     for _ in range(MAX_PAGINAS_POR_TERMINO):
-        nuevos = page.locator('a[href^="/oferta/"]').evaluate_all(
+        nuevos = page.locator('a[href*="/oferta/"]').evaluate_all(
             "els => els.map(e => e.href)"
         )
         if not nuevos:
@@ -84,7 +89,7 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     page = nueva_pagina(browser)
 
     todos_los_links = set()
-    limite_terminos = 1 if modo == "rapida" else 5
+    limite_terminos = 3 if modo == "rapida" else 6
     for idx, termino in enumerate(list(terminos or TERMINOS_BUSQUEDA)[:limite_terminos], 1):
         if progreso: progreso(f"BNE · búsqueda {idx}/{limite_terminos} · {termino}")
         try:

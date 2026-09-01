@@ -25,9 +25,9 @@ def _buscar_links_por_termino(page, termino):
         slug = termino.strip().lower().replace(" ", "-")
         url = f"{BASE_URL}/empleos-busqueda-{slug}.html{sufijo}"
         page.goto(url, wait_until="domcontentloaded", timeout=8000)
-        page.wait_for_timeout(PAUSA_MS)
+        page.wait_for_timeout(700)
 
-        nuevos = page.locator('a[href^="/empleos/"]').evaluate_all("els => els.map(e => e.href)")
+        nuevos = page.locator('a[href*="/empleos/"]').evaluate_all("els => els.map(e => e.href)")
         if not nuevos:
             break
         antes = len(links)
@@ -68,7 +68,7 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     page = nueva_pagina(browser)
 
     todos_los_links = set()
-    limite_terminos = 2 if modo == "rapida" else 5
+    limite_terminos = 4 if modo == "rapida" else 6
     for idx, termino in enumerate(list(terminos or TERMINOS_BUSQUEDA)[:limite_terminos], 1):
         if progreso: progreso(f"Laborum · búsqueda {idx}/{limite_terminos} · {termino}")
         try:

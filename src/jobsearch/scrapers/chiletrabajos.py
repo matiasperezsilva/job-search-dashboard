@@ -1,7 +1,7 @@
 """ChileTrabajos mediante páginas públicas, sin Chromium."""
 
 import re
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlsplit
 
 from .common import es_relevante_perfil, titulo_parece_relevante
 from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
@@ -9,8 +9,8 @@ from .http_common import absolute, date_posted, jobposting_jsonld, location_text
 USES_BROWSER = False
 NOMBRE = "ChileTrabajos"
 BASE_URL = "https://www.chiletrabajos.cl"
-MAX_TERMINOS_RAPIDA = 2
-MAX_DETALLES_RAPIDA = 8
+MAX_TERMINOS_RAPIDA = 4
+MAX_DETALLES_RAPIDA = 12
 
 
 def _links_busqueda(termino: str):
@@ -20,9 +20,11 @@ def _links_busqueda(termino: str):
     links, seen = [], set()
     for a in doc.find_all("a", href=True):
         href = (a.get("href") or "").strip()
-        if not re.match(r"^/trabajo/(?:[\w-]+-)?\d+/?$", href):
-            continue
         link = absolute(BASE_URL, href).split("?")[0]
+        path = urlsplit(link).path
+        # ChileTrabajos usa actualmente /trabajo/<id> y también puede incluir slug.
+        if not re.match(r"^/trabajo/(?:[\w-]+-)?\d+/?$", path, re.I):
+            continue
         if link not in seen:
             seen.add(link)
             links.append((link, a.get_text(" ", strip=True)))

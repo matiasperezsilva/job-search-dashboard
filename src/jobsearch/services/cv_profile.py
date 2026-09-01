@@ -2,6 +2,7 @@ from __future__ import annotations
 from io import BytesIO
 import json, re
 from pathlib import Path
+from datetime import date
 from pypdf import PdfReader
 from docx import Document
 
@@ -13,7 +14,7 @@ AREA_RULES = {
         "skills": ["python", "java", "javascript", "typescript", "react", "node", "spring", "git", "github", "api", "sql"],
     },
     "QA / Testing": {
-        "roles": ["analista qa", "qa tester", "qa engineer", "tester software", "qa funcional", "qa automation", "sdet", "analista de pruebas"],
+        "roles": ["analista qa", "qa analyst", "qa tester", "qa engineer", "tester software", "qa funcional", "qa automation", "sdet", "analista de pruebas"],
         "skills": ["postman", "selenium", "playwright", "cypress", "jmeter", "gherkin", "cucumber", "casos de prueba", "regresión", "testing", "jira"],
     },
     "Cloud / Operaciones": {
@@ -120,6 +121,121 @@ def _anos_experiencia_explicitos(texto: str):
     return max(vals) if vals else None
 
 
+
+_MONTHS_ES = {
+    "ene": 1, "enero": 1, "feb": 2, "febrero": 2, "mar": 3, "marzo": 3,
+    "abr": 4, "abril": 4, "may": 5, "mayo": 5, "jun": 6, "junio": 6,
+    "jul": 7, "julio": 7, "ago": 8, "agosto": 8, "sep": 9, "sept": 9,
+    "septiembre": 9, "oct": 10, "octubre": 10, "nov": 11, "noviembre": 11,
+    "dic": 12, "diciembre": 12,
+}
+_ACADEMIC_EXPERIENCE_MARKERS = (
+    "proyecto de título", "proyecto de titulo", "proyecto académico", "proyecto academico",
+    "tesis", "capstone", "proyecto universitario",
+)
+
+
+def _month_index(year: int, month: int) -> int:
+    return year * 12 + (month - 1)
+
+
+def _merge_month_intervals(intervals):
+    """Une intervalos [inicio, fin_exclusivo) para no duplicar experiencia superpuesta."""
+    if not intervals:
+        return []
+    intervals = sorted(intervals)
+    merged = [list(intervals[0])]
+    for start, end in intervals[1:]:
+        if start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [tuple(x) for x in merged]
+
+
+def _experiencia_por_fechas(texto: str, today=None):
+    """Estima experiencia profesional desde rangos de fechas del bloque EXPERIENCIA.
+
+    Excluye explícitamente proyectos académicos/título/tesis y evita sumar periodos
+    superpuestos. Devuelve None cuando no hay rangos laborales interpretables.
+    """
+    today = today or date.today()
+    raw = texto or ""
+    # Trabajar con el bloque EXPERIENCIA cuando existe para no confundir educación.
+    m = re.search(r"(?is)\bEXPERIENCIA\b(.*?)(?:\bEDUCACI[ÓO]N\b|\bFORMACI[ÓO]N\b|\bCERTIFICACIONES\b|$)", raw)
+    block = m.group(1) if m else raw
+
+    month_names = "|".join(sorted((re.escape(k) for k in _MONTHS_ES), key=len, reverse=True))
+    pat = re.compile(
+        rf"(?i)(?P<prefix>[^\n]{{0,140}}?)\b(?P<m1>{month_names})\.?\s+(?P<y1>20\d{{2}})"
+        rf"\s*(?:-|–|—|a|hasta)\s*"
+        rf"(?:(?P<m2>{month_names})\.?\s+(?P<y2>20\d{{2}})|(?P<current>actualidad|actual|presente))"
+    )
+
+    intervals = []
+    ignored = []
+    entries = []
+    for match in pat.finditer(block):
+        prefix = re.sub(r"\s+", " ", match.group("prefix") or "").strip(" -–—|")
+        low_prefix = prefix.lower()
+        start_month = _MONTHS_ES[match.group("m1").lower()]
+        start_year = int(match.group("y1"))
+        if match.group("current"):
+            end_year, end_month = today.year, today.month
+        else:
+            end_month = _MONTHS_ES[match.group("m2").lower()]
+            end_year = int(match.group("y2"))
+
+        start = _month_index(start_year, start_month)
+        # Fin exclusivo: incluye el mes final declarado.
+        end = _month_index(end_year, end_month) + 1
+        if end <= start or end - start > 600:
+            continue
+
+        is_academic = any(marker in low_prefix for marker in _ACADEMIC_EXPERIENCE_MARKERS)
+        info = {
+            "etiqueta": prefix[-100:] if prefix else "",
+            "inicio": f"{start_year:04d}-{start_month:02d}",
+            "fin": f"{end_year:04d}-{end_month:02d}",
+            "meses": end - start,
+            "academico": is_academic,
+        }
+        entries.append(info)
+        if is_academic:
+            ignored.append(info)
+        else:
+            intervals.append((start, end))
+
+    if not intervals:
+        return None
+    merged = _merge_month_intervals(intervals)
+    months = sum(end - start for start, end in merged)
+    return {
+        "meses": months,
+        "anos": round(months / 12, 2),
+        "fuente": "rangos_fechas",
+        "periodos": entries,
+        "periodos_academicos_excluidos": ignored,
+    }
+
+
+def _experiencia_profesional(texto: str):
+    """Prioriza fechas laborales; usa declaración explícita de años solo como fallback."""
+    by_dates = _experiencia_por_fechas(texto)
+    if by_dates:
+        return by_dates
+    explicit = _anos_experiencia_explicitos(texto)
+    if explicit is None:
+        return None
+    return {
+        "meses": int(round(explicit * 12)),
+        "anos": float(explicit),
+        "fuente": "declaracion_explicita",
+        "periodos": [],
+        "periodos_academicos_excluidos": [],
+    }
+
+
 def _requisito_experiencia(oferta_texto: str):
     """Devuelve el mínimo de años solicitado por una oferta cuando es explícito."""
     patterns=[
@@ -137,12 +253,26 @@ def _requisito_experiencia(oferta_texto: str):
 
 
 def construir_perfil_desde_texto(texto: str) -> dict:
+    experiencia = _experiencia_profesional(texto)
     limpio = re.sub(r"\s+", " ", texto).strip()
+    # El encabezado profesional (antes de PERFIL PROFESIONAL) representa mejor
+    # el rol declarado que tecnologías mencionadas en proyectos académicos.
+    raw_headline = re.split(r"(?i)\bPERFIL PROFESIONAL\b", texto or "", maxsplit=1)[0]
+    headline = re.sub(r"\s+", " ", raw_headline[:700]).strip()
     scored = []
     for area, cfg in AREA_RULES.items():
         role_hits = [r for r in cfg["roles"] if _contiene(limpio, r)]
+        headline_role_hits = [r for r in cfg["roles"] if _contiene(headline, r)]
         skill_hits = [s for s in cfg["skills"] if _contiene(limpio, s)]
-        score = len(role_hits) * 5 + len(skill_hits) * 2
+        if area == "Minería / Calidad industrial":
+            industrial_evidence = [x for x in skill_hits if x in {
+                "minería", "faena", "iso 9001", "qa/qc", "inspección", "soldadura",
+                "materiales", "haccp", "laboratorio", "manufactura"
+            }]
+            if not industrial_evidence:
+                role_hits = [x for x in role_hits if x not in {"aseguramiento de calidad", "control de calidad"}]
+                headline_role_hits = [x for x in headline_role_hits if x not in {"aseguramiento de calidad", "control de calidad"}]
+        score = len(role_hits) * 5 + len(skill_hits) * 2 + len(headline_role_hits) * 20
         if score: scored.append((score, area, role_hits, skill_hits))
     scored.sort(reverse=True)
 
@@ -178,7 +308,10 @@ def construir_perfil_desde_texto(texto: str) -> dict:
             "roles_objetivo": roles,
             "terminos_busqueda": roles,  # compatibilidad con el resto de la app
             "seniority_estimado": _nivel(limpio),
-            "anos_experiencia": _anos_experiencia_explicitos(limpio),
+            "anos_experiencia": experiencia.get("anos") if experiencia else None,
+            "meses_experiencia": experiencia.get("meses") if experiencia else None,
+            "experiencia_fuente": experiencia.get("fuente") if experiencia else None,
+            "periodos_experiencia": experiencia.get("periodos") if experiencia else [],
             "caracteres_cv": len(limpio),
         },
         "areas": areas,

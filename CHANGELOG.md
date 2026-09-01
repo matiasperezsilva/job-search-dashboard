@@ -1,3 +1,42 @@
+## 5.7.7 — Guardado verificable de cartas
+- “Guardar borrador” muestra estados visibles: Guardando…, Guardado ✓, cambios sin guardar y error.
+- El backend valida contenido y modo antes de persistir.
+- Después del upsert se relee la carta para confirmar que realmente quedó guardada.
+- El frontend hace una segunda relectura y comprueba que el contenido almacenado coincide con el editor.
+- Se muestra la hora del último guardado.
+- Los errores de Supabase/API dejan de fallar silenciosamente.
+- 60 pruebas automatizadas aprobadas.
+
+## 5.7.6 — Experiencia y score normalizados
+- La experiencia profesional se calcula desde rangos de fechas del bloque EXPERIENCIA.
+- Se excluyen proyectos de título, tesis y proyectos académicos del total de años profesionales.
+- Los períodos superpuestos se fusionan para no duplicar meses.
+- Los CV con menos de un año muestran meses en la interfaz.
+- Una estimación determinística por fechas tiene prioridad sobre una estimación 0 de Gemini.
+- El encabezado profesional del CV recibe mayor peso que roles mencionados solo en proyectos académicos.
+- `QA Analyst` se reconoce explícitamente como rol QA.
+- La calidad industrial exige contexto industrial; frases genéricas de QA no activan el área minera/industrial.
+- El score limita primero las señales positivas a 100 y después aplica penalizaciones, por lo que una penalización visible siempre afecta el resultado final.
+- El desglose muestra base positiva, penalizaciones y resultado final.
+- 57 pruebas automatizadas aprobadas.
+
+## 5.7.5 — Portal reliability + UX
+- Corrige falsos ceros de búsqueda causados por prefiltros de frases demasiado estrictos.
+- Los adaptadores de Computrabajo, ChileTrabajos y Trabajando aceptan enlaces absolutos y relativos.
+- ChileTrabajos y Trabajando consultan más términos en búsqueda rápida para no depender del orden del perfil.
+- BNE y Laborum usan selectores de enlaces más tolerantes y BNE espera la actualización real de resultados.
+- Las fuentes sin coincidencias se distinguen visualmente de una fuente con error.
+- El panel de detalle tiene scroll independiente en escritorio.
+- Seguridad se mueve desde “Mi currículum” a una nueva sección “Cuenta y seguridad”.
+- Se agrega confirmación de nueva contraseña en la sección de cuenta.
+- 53 pruebas automatizadas aprobadas.
+
+## 5.7.4 — TypeScript CI fix
+- Se añadieron al tipo `Job` los campos calculados por el backend para deduplicación y antigüedad:
+  `duplicate_count`, `duplicate_sources` e `is_old`.
+- Corrige el fallo TS2339 detectado por GitHub Actions en `frontend-build`.
+- No cambia el esquema de Supabase ni requiere nuevas variables de entorno.
+
 ## 5.7.3 — Release CI
 - GitHub Actions ahora ejecuta realmente toda la suite con `pytest`.
 - Se agregó `requirements-dev.txt` para dependencias de validación.

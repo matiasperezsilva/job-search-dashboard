@@ -372,7 +372,13 @@ def evaluar_oferta(oferta, perfil):
     score += preferences_delta
     components.extend(preference_components)
 
-    pre_clamp = round(score)
+    # Las señales positivas pueden superar 100 internamente, pero una penalización
+    # visible siempre debe afectar el resultado final. Primero se limita el subtotal
+    # positivo a 100 y luego se restan penalizaciones.
+    positive_total = round(sum(max(0, float(c.get("value") or 0)) for c in components))
+    penalties_total = round(sum(min(0, float(c.get("value") or 0)) for c in components))
+    positive_capped = min(100, positive_total)
+    pre_clamp = positive_capped + penalties_total
     final_score = max(0, min(100, pre_clamp))
     coincidencias = list(dict.fromkeys(hits_role + hits_skill))[:10]
     razon = f"Mejor calce: {area}. Coincidencias: {', '.join(coincidencias) or 'señales del perfil'}."
@@ -389,6 +395,9 @@ def evaluar_oferta(oferta, perfil):
         "verdict": verdict,
         "components": components,
         "pre_clamp_score": pre_clamp,
+        "positive_score": positive_capped,
+        "positive_score_raw": positive_total,
+        "penalties_total": penalties_total,
         "final_score": final_score,
         "area": area,
         "matched_roles": list(dict.fromkeys(hits_role))[:6],
