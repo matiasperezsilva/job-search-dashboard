@@ -20,7 +20,9 @@ COPY package.json ./
 RUN npm install --no-audit --no-fund
 
 COPY . .
+RUN chmod +x /app/start.sh
 RUN npm run build
 
 EXPOSE 3000
-CMD ["./start.sh"]
+
+CMD ["/bin/bash", "/app/start.sh"]
