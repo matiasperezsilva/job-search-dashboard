@@ -1,75 +1,98 @@
 # Job Search Dashboard
 
-Webapp en Python que analiza un currículum, genera búsquedas de empleo basadas en el perfil detectado, recopila ofertas desde múltiples portales, calcula su nivel de coincidencia y permite gestionar postulaciones y cartas de presentación.
-
-## Funcionalidades
-
-- Registro e inicio de sesión.
-- Carga de CV en PDF, DOCX o TXT.
-- Extracción automática de áreas, tecnologías y términos de búsqueda.
-- Scraping modular con Playwright.
-- Scoring CV ↔ oferta.
-- Gestión de ofertas y estados de postulación.
-- Generación local de cartas de presentación.
-- Generación inteligente opcional mediante API compatible con Chat Completions.
-- Persistencia en Supabase PostgreSQL.
-- Aislamiento de datos por usuario con Row Level Security.
-- Docker y Blueprint de Render incluidos.
+Aplicación web para buscar, priorizar y gestionar oportunidades laborales basándose en el currículum del usuario.
 
 ## Arquitectura
+
+- **Next.js 16 + React 19**: interfaz web.
+- **FastAPI**: API interna y orquestación del motor Python.
+- **Playwright + HTTP**: adaptadores de portales laborales.
+- **Supabase Auth + PostgreSQL**: autenticación y persistencia por usuario.
+- **Render**: despliegue Docker en un único Web Service.
 
 ```text
 Navegador
    │
    ▼
-Render · Streamlit + Playwright/Chromium
+Next.js / React
    │
-   ├── Portales laborales
+   ▼
+FastAPI
    │
-   └── Supabase
-       ├── Auth
-       └── PostgreSQL + RLS
+   ├── CV → perfil / términos
+   ├── matching y scoring
+   ├── generación de cartas
+   └── scrapers
+          │
+          ▼
+     Portales laborales
+   │
+   ▼
+Supabase
 ```
+
+## Flujo principal
+
+1. El usuario crea una cuenta o inicia sesión.
+2. Sube su currículum PDF, DOCX o TXT.
+3. El backend extrae áreas, skills y roles de búsqueda.
+4. La app consulta los portales seleccionados.
+5. Antes de puntuar, cada resultado debe validarse como una **vacante individual real**.
+6. El matching descarta páginas SEO, QA/QC industrial y cargos fuera del perfil TI.
+7. Las oportunidades se muestran ordenadas por calce.
+8. Cada vacante incluye el botón **Ver oferta / Postular** hacia su publicación original.
+9. El usuario puede gestionar estado, notas y carta de presentación.
+
+## Correcciones de relevancia
+
+La versión actual aplica reglas duras antes del scoring:
+
+- `23 Ofertas de trabajo de qa en Tarapacá` → **0 puntos / Descartada**.
+- URLs de Computrabajo `/trabajo-de-*` → **no son vacantes**.
+- Solo se aceptan detalles de Computrabajo bajo `/ofertas-de-trabajo/oferta-de-trabajo-de-*`.
+- QA industrial/minería/alimentos/ISO 9001 sin contexto software → descartado.
+- QA funcional, tester software, QA automation, APIs, Selenium, Postman, regresión, SDLC, etc. → contexto TI válido.
 
 ## Desarrollo local
 
+Necesitas Node.js, Python y Chromium de Playwright.
+
 ```bash
+npm install
 python -m venv .venv
+# Windows: .venv\\Scripts\\activate
+# Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-Copia `.env.example` a `.env`, configura Supabase y ejecuta:
+Inicia FastAPI:
 
 ```bash
-streamlit run streamlit_app.py
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-## Despliegue
+En otra terminal:
 
-Consulta [`docs/despliegue_render.md`](docs/despliegue_render.md).
+```bash
+npm run dev
+```
+
+## Despliegue en Render
+
+El repositorio mantiene el mismo `render.yaml` y las mismas variables que la versión anterior:
+
+- `SUPABASE_URL`
+- `SUPABASE_PUBLISHABLE_KEY`
+- `ENABLE_LINKEDIN=false`
+- variables opcionales `LETTER_API_*`
+
+El `Dockerfile` inicia Next.js y FastAPI dentro del mismo Web Service, por lo que sigue siendo compatible con el plan Free de Render.
 
 ## Privacidad
 
-El archivo original del CV se procesa en memoria y no se almacena. La aplicación guarda el texto extraído y el perfil derivado en la cuenta del usuario para permitir matching y generación de cartas. Las tablas están protegidas mediante RLS.
+El archivo original del CV se procesa en memoria. La información procesada y las oportunidades se almacenan en Supabase con Row Level Security para separar los datos de cada usuario.
 
-## Tecnologías
+## Autores
 
-Python · Streamlit · Playwright · Chromium · Supabase · PostgreSQL · Docker · Render · GitHub Actions
-
-## Licencia
-
-MIT.
-
-## Mejoras de experiencia y rendimiento
-
-La versión actual incorpora un modo de búsqueda rápida optimizado para hosting gratuito en Render: limita términos y resultados por portal, bloquea recursos visuales innecesarios en Chromium, evita esperas `networkidle` y muestra progreso/tiempos por fuente. GetOnBoard consulta sus categorías técnicas públicas para reducir dependencia del buscador JavaScript.
-
-La interfaz utiliza una capa visual personalizada sobre Streamlit con dashboard, navegación lateral, tarjetas, estados y vistas más orientadas a producto.
-
-## Calidad de resultados
-
-La aplicación aplica una validación de relevancia antes del scoring. Las búsquedas usan nombres de cargos en lugar de tecnologías aisladas y los roles QA ambiguos requieren señales de software/TI. Páginas de resultados, QA/QC industrial, minería, construcción, alimentos y otros contextos de calidad no tecnológicos se descartan.
-
-GetOnBoard y Computrabajo utilizan consultas HTTP sobre contenido público para reducir consumo de recursos en Render. Las demás fuentes mantienen adaptadores aislados para que el fallo de un portal no detenga toda la búsqueda.
-
+Matías Pérez y colaboradores del proyecto.

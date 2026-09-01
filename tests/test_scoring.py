@@ -36,6 +36,26 @@ class ScoringTests(unittest.TestCase):
         )["puntaje"]
         self.assertGreater(junior, senior)
 
+    def test_pagina_seo_computrabajo_siempre_es_cero(self):
+        oferta = {
+            "titulo": "23 Ofertas de trabajo de qa en Tarapacá",
+            "descripcion": "qa tester software",
+            "fuente": "Computrabajo",
+            "link": "https://cl.computrabajo.com/trabajo-de-qa-en-tarapaca",
+        }
+        resultado = evaluar_oferta(oferta, self.perfil)
+        self.assertEqual(resultado["puntaje"], 0)
+        self.assertEqual(resultado["area"], "Descartada")
+
+    def test_qa_industrial_computrabajo_es_cero(self):
+        oferta = {
+            "titulo": "Supervisor QA QC",
+            "descripcion": "minería, faena, ISO 9001, control de calidad e inspección",
+            "fuente": "Computrabajo",
+            "link": "https://cl.computrabajo.com/ofertas-de-trabajo/oferta-de-trabajo-de-supervisor-qa-qc-abc",
+        }
+        self.assertEqual(evaluar_oferta(oferta, self.perfil)["puntaje"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

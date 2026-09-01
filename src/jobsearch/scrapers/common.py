@@ -45,7 +45,7 @@ _NON_SOFTWARE_QUALITY = [
 ]
 
 _SEO_OR_SEARCH_PAGE = re.compile(
-    r"^(ofertas? de trabajo de|trabajos? de|empleos? de|de qa\b|qa en\b)", re.IGNORECASE
+    r"^(?:\d+\s+)?(?:ofertas? de trabajo de|trabajos? de|empleos? de|de qa\b|qa en\b)", re.IGNORECASE
 )
 
 
@@ -95,7 +95,28 @@ def texto_o_vacio(locator):
 
 
 def es_pagina_busqueda(titulo: str) -> bool:
-    return bool(_SEO_OR_SEARCH_PAGE.search((titulo or "").strip()))
+    limpio = re.sub(r"^\s*\d+\s+", "", (titulo or "").strip())
+    return bool(_SEO_OR_SEARCH_PAGE.search(limpio))
+
+
+def enlace_es_vacante_individual(oferta: dict) -> bool:
+    """Valida patrones conocidos para no confundir listados/SEO con vacantes."""
+    fuente = (oferta.get("fuente") or "").lower()
+    link = (oferta.get("link") or "").lower()
+    if not link:
+        return True
+    if fuente == "computrabajo":
+        return "/ofertas-de-trabajo/oferta-de-trabajo-de-" in link
+    if fuente == "getonboard":
+        return bool(re.search(r"getonbrd\.com/(?:jobs|empleos)/[^/]+/[^/?#]+", link))
+    return True
+
+
+def oferta_es_valida(oferta: dict) -> bool:
+    titulo = (oferta.get("titulo") or "").strip()
+    if not titulo or es_pagina_busqueda(titulo):
+        return False
+    return enlace_es_vacante_individual(oferta)
 
 
 def contexto_software(titulo: str, descripcion: str = "") -> int:

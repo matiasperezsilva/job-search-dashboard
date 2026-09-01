@@ -2,7 +2,7 @@ import importlib
 import os
 import time
 from playwright.sync_api import sync_playwright
-from jobsearch.scrapers.common import es_relevante_perfil
+from jobsearch.scrapers.common import es_relevante_perfil, oferta_es_valida
 
 FUENTES = {
     "GetOnBoard": "getonbrd",
@@ -54,7 +54,7 @@ def recolectar(fuentes, terminos=None, headless=True, modo="rapida", progreso=No
 
                 # Segunda barrera común: una fuente nunca puede guardar una página
                 # SEO o un QA industrial aunque su adaptador se equivoque.
-                resultado = [o for o in resultado if es_relevante_perfil(o.get("titulo", ""), o.get("descripcion", ""))]
+                resultado = [o for o in resultado if oferta_es_valida(o) and es_relevante_perfil(o.get("titulo", ""), o.get("descripcion", ""))]
                 ofertas.extend(resultado)
                 estadisticas.append({"fuente": nombre, "cantidad": len(resultado), "segundos": round(time.monotonic()-inicio, 1), "ok": True})
             except Exception as exc:

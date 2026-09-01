@@ -31,6 +31,15 @@ class RelevanceTests(unittest.TestCase):
             'Validación de aplicaciones backend y frontend, testing funcional y reporte de defectos.'
         ))
 
+    def test_pagina_seo_con_numero_se_descarta(self):
+        self.assertTrue(es_pagina_busqueda('23 Ofertas de trabajo de qa en Tarapacá'))
+        self.assertTrue(es_pagina_busqueda('91 Empleos de qa Jornada extraordinaria'))
+
+    def test_computrabajo_listing_url_no_es_vacante(self):
+        from jobsearch.scrapers.common import oferta_es_valida
+        self.assertFalse(oferta_es_valida({'titulo':'Coordinador QA','fuente':'Computrabajo','link':'https://cl.computrabajo.com/trabajo-de-qa'}))
+        self.assertTrue(oferta_es_valida({'titulo':'Coordinador QA Automatizador','fuente':'Computrabajo','link':'https://cl.computrabajo.com/ofertas-de-trabajo/oferta-de-trabajo-de-coordinador-qa-abc'}))
+
 
 if __name__ == '__main__':
     unittest.main()

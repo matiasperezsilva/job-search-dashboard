@@ -1,25 +1,23 @@
-# Despliegue gratuito en Render + Supabase
+# Despliegue en Render
 
-La aplicación está preparada para ejecutarse como Web Service Docker en Render y usar Supabase para autenticación y persistencia.
+El proyecto utiliza un único Web Service Docker para mantener el costo inicial en $0.
+
+El contenedor inicia:
+
+1. FastAPI en `127.0.0.1:8000`.
+2. Next.js en el puerto público entregado por Render.
+3. Next.js redirige `/api/backend/*` hacia FastAPI internamente.
 
 ## Variables requeridas
 
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
-
-## Variables opcionales
-
 - `ENABLE_LINKEDIN=false`
+
+Opcionales para cartas inteligentes:
+
 - `LETTER_API_BASE_URL`
 - `LETTER_API_KEY`
 - `LETTER_API_MODEL`
 
-## Render
-
-El repositorio incluye `render.yaml`. Crea un Blueprint desde el repositorio, selecciona el plan Free y carga las dos variables de Supabase. Render construirá la imagen Docker, instalará Chromium mediante Playwright y expondrá la aplicación usando el puerto asignado por Render.
-
-El health check está configurado en `/_stcore/health`.
-
-## Persistencia
-
-El contenedor no almacena datos importantes. CV procesado, perfil, ofertas, estados y cartas se guardan en Supabase y están aislados por usuario mediante Row Level Security (RLS).
+El endpoint `/_stcore/health` se conserva como health check por compatibilidad con el servicio de Render ya creado, aunque la aplicación ya no utiliza Streamlit.
