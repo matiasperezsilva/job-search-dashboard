@@ -13,8 +13,8 @@ TERMINOS_BUSQUEDA = [
     "analista-funcional",
     "soporte-ti",
 ]
-MAX_PAGINAS_POR_TERMINO = 3
-PAUSA_MS = 1500
+MAX_PAGINAS_POR_TERMINO = 1
+PAUSA_MS = 200
 
 
 def _buscar_links_por_termino(page, termino):
@@ -24,7 +24,7 @@ def _buscar_links_por_termino(page, termino):
         sufijo = "" if num_pagina == 1 else f"?page={num_pagina}"
         slug = termino.strip().lower().replace(" ", "-")
         url = f"{BASE_URL}/empleos-busqueda-{slug}.html{sufijo}"
-        page.goto(url, wait_until="load", timeout=30000)
+        page.goto(url, wait_until="domcontentloaded", timeout=12000)
         page.wait_for_timeout(PAUSA_MS)
 
         nuevos = page.locator('a[href^="/empleos/"]').evaluate_all("els => els.map(e => e.href)")
@@ -40,8 +40,8 @@ def _buscar_links_por_termino(page, termino):
 
 
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="load", timeout=30000)
-    page.wait_for_timeout(1500)
+    page.goto(link, wait_until="domcontentloaded", timeout=12000)
+    page.wait_for_timeout(250)
 
     titulo = page.locator("h1[aria-label]").first.inner_text().strip()
 
@@ -68,7 +68,7 @@ def buscar_ofertas(browser, terminos=None):
     page = nueva_pagina(browser)
 
     todos_los_links = set()
-    for termino in (terminos or TERMINOS_BUSQUEDA):
+    for termino in list(terminos or TERMINOS_BUSQUEDA)[:6]:
         try:
             todos_los_links.update(_buscar_links_por_termino(page, termino))
         except Exception as e:
@@ -76,7 +76,7 @@ def buscar_ofertas(browser, terminos=None):
         page.wait_for_timeout(PAUSA_MS)
 
     ofertas = []
-    for link in sorted(todos_los_links):
+    for link in sorted(todos_los_links)[:15]:
         try:
             oferta = _extraer_oferta(page, link)
         except Exception as e:

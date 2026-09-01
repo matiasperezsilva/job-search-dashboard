@@ -11,17 +11,17 @@ TERMINOS_BUSQUEDA = [
     "analista funcional",
     "soporte TI", "mesa de ayuda",
 ]
-MAX_PAGINAS_POR_TERMINO = 3
-PAUSA_MS = 1000
+MAX_PAGINAS_POR_TERMINO = 1
+PAUSA_MS = 200
 
 
 def _buscar_links_por_termino(page, termino):
     print(f"  [{NOMBRE}] Buscando '{termino}'")
-    page.goto(f"{BASE_URL}/ofertas?mostrar=empleo", wait_until="load", timeout=30000)
-    page.wait_for_timeout(2000)
+    page.goto(f"{BASE_URL}/ofertas?mostrar=empleo", wait_until="domcontentloaded", timeout=12000)
+    page.wait_for_timeout(250)
     page.fill('input[placeholder*="palabra clave"]', termino)
     page.click('button:has-text("BUSCAR")')
-    page.wait_for_timeout(2500)
+    page.wait_for_timeout(300)
 
     links = set()
     for _ in range(MAX_PAGINAS_POR_TERMINO):
@@ -40,7 +40,7 @@ def _buscar_links_por_termino(page, termino):
             break
         try:
             siguiente.first.click(timeout=3000)
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(250)
         except Exception:
             break
 
@@ -49,8 +49,8 @@ def _buscar_links_por_termino(page, termino):
 
 
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="load", timeout=30000)
-    page.wait_for_timeout(1200)
+    page.goto(link, wait_until="domcontentloaded", timeout=12000)
+    page.wait_for_timeout(200)
 
     titulo = page.locator("#nombreOferta > span").first.inner_text().strip()
 
@@ -84,7 +84,7 @@ def buscar_ofertas(browser, terminos=None):
     page = nueva_pagina(browser)
 
     todos_los_links = set()
-    for termino in (terminos or TERMINOS_BUSQUEDA):
+    for termino in list(terminos or TERMINOS_BUSQUEDA)[:6]:
         try:
             todos_los_links.update(_buscar_links_por_termino(page, termino))
         except Exception as e:
@@ -92,7 +92,7 @@ def buscar_ofertas(browser, terminos=None):
         page.wait_for_timeout(PAUSA_MS)
 
     ofertas = []
-    for link in sorted(todos_los_links):
+    for link in sorted(todos_los_links)[:15]:
         try:
             oferta = _extraer_oferta(page, link)
         except Exception as e:

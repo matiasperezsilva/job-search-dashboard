@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import streamlit as st
+from jobsearch.ui.theme import hero
 
 from jobsearch.services.profile_service import cargar_perfil, texto_cv
 from jobsearch.services.letters import (
@@ -20,12 +21,12 @@ from jobsearch.services.repository import (
     obtener_carta,
 )
 
-st.title("💼 Ofertas")
+hero('Oportunidades priorizadas', 'Revisa el calce con tu CV, cambia el estado de cada proceso y genera una carta específica para la oferta.', 'OPORTUNIDADES')
 c1, c2 = st.columns(2)
 min_score = c1.slider("Puntaje mínimo", 0, 100, 40, 5)
 fuente = c2.text_input("Filtrar por fuente")
 rows = listar_ofertas(min_score, fuente or None)
-st.caption(f"{len(rows)} resultados")
+st.caption(f'{len(rows)} oportunidades encontradas con los filtros actuales')
 
 if rows:
     display = [
@@ -43,13 +44,14 @@ if rows:
     writer = csv.DictWriter(out, fieldnames=display[0].keys())
     writer.writeheader()
     writer.writerows(display)
-    st.download_button("Descargar CSV", out.getvalue(), "ofertas.csv", "text/csv")
+    st.download_button("Exportar resultados CSV", out.getvalue(), "ofertas.csv", "text/csv")
 
-    st.divider()
+    st.markdown('---')
+    st.markdown('<div class="section-title">Detalle de oportunidad</div><div class="section-subtitle">Selecciona una oferta para gestionar seguimiento o preparar tu carta.</div>', unsafe_allow_html=True)
     opciones = {f"{r['puntaje']} · {r['titulo']} — {r['empresa']}": r for r in rows}
     elegido = opciones[st.selectbox("Seleccionar oferta", list(opciones))]
 
-    tab_estado, tab_carta = st.tabs(["Seguimiento", "Carta de presentación"])
+    tab_estado, tab_carta = st.tabs(["Seguimiento del proceso", "Carta de presentación"])
 
     with tab_estado:
         estado = st.selectbox(

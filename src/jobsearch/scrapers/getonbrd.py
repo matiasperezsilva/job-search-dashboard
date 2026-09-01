@@ -1,59 +1,59 @@
-"""Adaptador de búsqueda para getonbrd."""
+"""Adaptador rápido para Get on Board.
 
-from .common import click_si_existe, normalizar_link, nueva_pagina, texto_o_vacio
+En producción priorizamos las páginas públicas por categoría en vez del buscador
+JS. Esto reduce navegación, evita esperas por `networkidle` y funciona mejor en
+instancias pequeñas como Render Free.
+"""
+
+from .common import ir_rapido, normalizar_link, nueva_pagina, texto_o_vacio, titulo_parece_relevante
 
 NOMBRE = "GetOnBoard"
 BASE_URL = "https://www.getonbrd.com"
-TERMINOS_BUSQUEDA = [
-    "QA", "tester", "quality assurance",
-    "DBA", "administrador de base de datos", "database administrator",
-    "soporte cloud", "cloud support",
-    "analista funcional", "business analyst",
-    "soporte TI",
+CATEGORIAS = [
+    "/jobs/sysadmin-devops-qa",
+    "/jobs/data-science-analytics",
+    "/jobs/innovation-agile",
+    "/jobs/customer-support",
 ]
+MAX_CANDIDATOS = 24
+MAX_DETALLES = 16
 
 
-def _cargar_todos_los_resultados(page):
-    cantidad_anterior = -1
-    for _ in range(20):
-        cantidad_actual = page.locator("a.results-item").count()
-        if cantidad_actual == cantidad_anterior:
+def _links_categoria(page, path, terminos):
+    ir_rapido(page, BASE_URL + path)
+    enlaces = page.locator('a[href*="/jobs/"]')
+    datos = enlaces.evaluate_all(
+        "els => els.map(e => ({href:e.href, text:(e.innerText||'').trim()}))"
+    )
+    salida = []
+    for item in datos:
+        href = normalizar_link(item.get("href", ""))
+        texto = (item.get("text") or "").split("\n", 1)[0].strip()
+        if not href or href.rstrip("/").endswith(path.strip("/")):
+            continue
+        if href.count("/jobs/") != 1:
+            continue
+        # Preferimos títulos afines; si el texto no viene bien formado lo dejamos
+        # como candidato para no perder resultados.
+        if not texto or titulo_parece_relevante(texto, terminos):
+            salida.append(href)
+        if len(salida) >= MAX_CANDIDATOS:
             break
-        cantidad_anterior = cantidad_actual
-        page.mouse.wheel(0, 5000)
-        page.wait_for_timeout(800)
-    return page.locator("a.results-item").count()
-
-
-def _buscar_links_por_termino(page, termino):
-    print(f"  [{NOMBRE}] Buscando '{termino}'")
-
-    # Vamos siempre a la página base y usamos el buscador real (llenar +
-    # Enter), en vez de armar la URL a mano: la URL "directa" a
-    # /empleos-{termino} no dispara la misma búsqueda que hace el
-    # JavaScript del sitio y devuelve muchos menos resultados.
-    page.goto(f"{BASE_URL}/empleos", wait_until="networkidle")
-    click_si_existe(page, "#accept_cookies")
-    page.fill("#search_term", termino)
-    page.press("#search_term", "Enter")
-    page.wait_for_load_state("networkidle")
-    _cargar_todos_los_resultados(page)
-
-    links = page.locator("a.results-item").evaluate_all("els => els.map(e => e.href)")
-    links = [normalizar_link(link) for link in links]
-    print(f"    {len(links)} ofertas encontradas")
-    return links
+    return salida
 
 
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="networkidle")
-    click_si_existe(page, "#accept_cookies")
-
-    titulo = page.locator('[itemprop="title"]').first.inner_text().strip()
+    ir_rapido(page, link)
+    titulo = texto_o_vacio(page.locator('[itemprop="title"]')) or texto_o_vacio(page.locator("h1"))
     empresa = texto_o_vacio(page.locator('[itemprop="hiringOrganization"] [itemprop="name"]'))
-    modalidad = texto_o_vacio(page.locator('[itemprop="jobLocation"] .location')).replace("\n", " ")
-    descripcion = page.locator("#job-body").inner_text().strip()
-
+    if not empresa:
+        empresa = texto_o_vacio(page.locator('[itemprop="hiringOrganization"]'))
+    modalidad = texto_o_vacio(page.locator('[itemprop="jobLocation"]')).replace("\n", " ")
+    descripcion = texto_o_vacio(page.locator("#job-body"))
+    if not descripcion:
+        descripcion = texto_o_vacio(page.locator('[itemprop="description"]'))
+    if not titulo:
+        raise ValueError("No se pudo identificar el título de la oferta")
     return {
         "titulo": titulo,
         "empresa": empresa,
@@ -64,18 +64,38 @@ def _extraer_oferta(page, link):
     }
 
 
-def buscar_ofertas(browser, terminos=None):
-    """Busca en todos los TERMINOS_BUSQUEDA, deduplica links y extrae cada oferta."""
+def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     page = nueva_pagina(browser)
-    todos_los_links = set()
-    for termino in (terminos or TERMINOS_BUSQUEDA):
-        todos_los_links.update(_buscar_links_por_termino(page, termino))
+    terminos = (terminos or [])[:6 if modo == "rapida" else 12]
+    links = []
+    vistos = set()
+    categorias = CATEGORIAS[:2] if modo == "rapida" else CATEGORIAS
+    try:
+        for i, cat in enumerate(categorias, 1):
+            if progreso:
+                progreso(f"GetOnBoard · categoría {i}/{len(categorias)}")
+            try:
+                for link in _links_categoria(page, cat, terminos):
+                    if link not in vistos:
+                        vistos.add(link); links.append(link)
+                    if len(links) >= MAX_CANDIDATOS:
+                        break
+            except Exception:
+                continue
+            if len(links) >= MAX_CANDIDATOS:
+                break
 
-    ofertas = []
-    for link in sorted(todos_los_links):
-        try:
-            ofertas.append(_extraer_oferta(page, link))
-        except Exception as e:
-            print(f"    ERROR al procesar {link}: {e}")
-    page.close()
-    return ofertas
+        ofertas = []
+        limite = min(len(links), MAX_DETALLES if modo == "rapida" else MAX_CANDIDATOS)
+        for idx, link in enumerate(links[:limite], 1):
+            if progreso:
+                progreso(f"GetOnBoard · leyendo {idx}/{limite}")
+            try:
+                oferta = _extraer_oferta(page, link)
+                if titulo_parece_relevante(oferta["titulo"], terminos):
+                    ofertas.append(oferta)
+            except Exception:
+                continue
+        return ofertas
+    finally:
+        page.close()

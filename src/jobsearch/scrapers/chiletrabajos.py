@@ -11,16 +11,16 @@ TERMINOS_BUSQUEDA = [
     "analista funcional",
     "soporte TI",
 ]
-MAX_PAGINAS_POR_TERMINO = 3
-PAUSA_MS = 1000
+MAX_PAGINAS_POR_TERMINO = 1
+PAUSA_MS = 200
 
 
 def _buscar_links_por_termino(page, termino):
     print(f"  [{NOMBRE}] Buscando '{termino}'")
-    page.goto(BASE_URL, wait_until="load", timeout=30000)
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=12000)
     page.fill('input[placeholder="Trabajo ej: Analista"]', termino)
     page.click("#frm-landingPage1-submit")
-    page.wait_for_load_state("load")
+    page.wait_for_load_state("domcontentloaded", timeout=6000)
     page.wait_for_timeout(PAUSA_MS)
 
     links = set()
@@ -33,7 +33,7 @@ def _buscar_links_por_termino(page, termino):
             break
         try:
             siguiente.first.click(timeout=3000)
-            page.wait_for_load_state("load")
+            page.wait_for_load_state("domcontentloaded", timeout=6000)
             page.wait_for_timeout(PAUSA_MS)
         except Exception:
             break
@@ -43,8 +43,8 @@ def _buscar_links_por_termino(page, termino):
 
 
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="load", timeout=30000)
-    page.wait_for_timeout(800)
+    page.goto(link, wait_until="domcontentloaded", timeout=12000)
+    page.wait_for_timeout(150)
 
     titulo = page.locator("h1.titulo-detalle").first.inner_text().strip()
 
@@ -71,7 +71,7 @@ def buscar_ofertas(browser, terminos=None):
     page = nueva_pagina(browser)
 
     todos_los_links = set()
-    for termino in (terminos or TERMINOS_BUSQUEDA):
+    for termino in list(terminos or TERMINOS_BUSQUEDA)[:6]:
         try:
             todos_los_links.update(_buscar_links_por_termino(page, termino))
         except Exception as e:
@@ -79,7 +79,7 @@ def buscar_ofertas(browser, terminos=None):
         page.wait_for_timeout(PAUSA_MS)
 
     ofertas = []
-    for link in sorted(todos_los_links):
+    for link in sorted(todos_los_links)[:15]:
         try:
             oferta = _extraer_oferta(page, link)
         except Exception as e:

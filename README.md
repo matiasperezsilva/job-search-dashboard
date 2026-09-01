@@ -60,3 +60,9 @@ Python · Streamlit · Playwright · Chromium · Supabase · PostgreSQL · Docke
 ## Licencia
 
 MIT.
+
+## Mejoras de experiencia y rendimiento
+
+La versión actual incorpora un modo de búsqueda rápida optimizado para hosting gratuito en Render: limita términos y resultados por portal, bloquea recursos visuales innecesarios en Chromium, evita esperas `networkidle` y muestra progreso/tiempos por fuente. GetOnBoard consulta sus categorías técnicas públicas para reducir dependencia del buscador JavaScript.
+
+La interfaz utiliza una capa visual personalizada sobre Streamlit con dashboard, navegación lateral, tarjetas, estados y vistas más orientadas a producto.
