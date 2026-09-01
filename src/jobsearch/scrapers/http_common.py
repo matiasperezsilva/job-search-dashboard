@@ -65,6 +65,20 @@ def organization_name(value) -> str:
     return str(value or "")
 
 
+def date_posted(value) -> str:
+    """Normaliza datePosted de JSON-LD sin inventar una fecha cuando no existe."""
+    if isinstance(value, dict):
+        value = value.get("datePosted")
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    # Conservamos ISO/fecha del portal. PostgreSQL timestamptz puede parsear ISO comunes.
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})(?:[Tt ]([0-9:.+-]+|[0-9:.]+[Zz]))?", raw)
+    if not m:
+        return ""
+    return raw
+
+
 def location_text(value) -> str:
     if isinstance(value, list):
         return " · ".join(filter(None, (location_text(x) for x in value)))

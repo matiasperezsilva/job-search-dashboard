@@ -1,6 +1,6 @@
 {
   "name": "job-search-dashboard",
-  "version": "4.0.0",
+  "version": "5.7.3",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,5 +19,8 @@
     "@types/react": "19.0.3",
     "@types/react-dom": "19.0.2",
     "typescript": "5.7.2"
+  },
+  "engines": {
+    "node": ">=22 <23"
   }
 }

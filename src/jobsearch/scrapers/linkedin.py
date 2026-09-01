@@ -1,97 +1,59 @@
-"""Adaptador de búsqueda para linkedin."""
+"""LinkedIn Jobs: búsqueda pública sin credenciales.
 
-from urllib.parse import quote_plus
-from .common import nueva_pagina
+No solicita contraseña ni cookies. Si LinkedIn limita la consulta pública, la fuente
+falla de forma aislada y el resto de portales continúa.
+"""
+from urllib.parse import quote_plus, urljoin
+import re
+from bs4 import BeautifulSoup
+from .http_common import get_html
 
-NOMBRE = "LinkedIn"
-BASE_URL = "https://www.linkedin.com/jobs/search"
-TERMINOS_BUSQUEDA = [
-    "QA", "tester", "quality assurance",
-    "DBA", "administrador de base de datos", "database administrator",
-    "soporte cloud", "cloud support",
-    "analista funcional", "business analyst",
-    "soporte TI",
-]
-MAX_OFERTAS_POR_TERMINO = 20
-PAUSA_MS = 3000
+NOMBRE="LinkedIn"; BASE="https://www.linkedin.com"; SEARCH=BASE+"/jobs/search"; USES_BROWSER=False
 
+def _job_id(href):
+    m=re.search(r"/jobs/view/(?:[^/?#]*-)?(\d+)", href or "")
+    return m.group(1) if m else ""
 
-def _cerrar_modal_login(page):
-    boton = page.locator('button[aria-label="Dismiss"], button.modal__dismiss')
-    if boton.count() > 0:
+def _clean(href):
+    jid=_job_id(href); return f"{BASE}/jobs/view/{jid}" if jid else ""
+
+def _links(html):
+    soup=BeautifulSoup(html,"html.parser"); out=[]
+    for a in soup.select('a.base-card__full-link, a[href*="/jobs/view/"]'):
+        u=_clean(urljoin(BASE,a.get("href","")))
+        if u and u not in out: out.append(u)
+    return out
+
+def _detail(html,link):
+    soup=BeautifulSoup(html,"html.parser")
+    def txt(sel):
+        e=soup.select_one(sel); return e.get_text(" ",strip=True) if e else ""
+    title=txt("h1.top-card-layout__title, h1")
+    if not title: return None
+    time_el=soup.select_one("time[datetime], .posted-time-ago__text")
+    published=(time_el.get("datetime") or "").strip() if time_el and time_el.has_attr("datetime") else ""
+    return {"titulo":title,"empresa":txt(".topcard__org-name-link, .topcard__flavor a"),
+            "descripcion":txt(".description__text, .show-more-less-html__markup"),
+            "modalidad":txt(".topcard__flavor--bullet, .topcard__flavor"),
+            "link":link,"fuente":NOMBRE,"published_at":published}
+
+def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
+    terms=list(dict.fromkeys(x.strip() for x in (terminos or []) if x and x.strip()))[:2 if modo=="rapida" else 5]
+    max_links=12 if modo=="rapida" else 30; links=[]
+    for i,term in enumerate(terms,1):
+        if progreso: progreso(f"LinkedIn · búsqueda {i}/{len(terms)}: {term}")
+        html=get_html(f"{SEARCH}?keywords={quote_plus(term)}&location=Chile&f_TPR=r2592000",timeout=12)
+        if "authwall" in html.lower() or "checkpoint" in html.lower():
+            raise RuntimeError("LinkedIn solicitó autenticación y limitó la consulta pública.")
+        for u in _links(html):
+            if u not in links: links.append(u)
+            if len(links)>=max_links: break
+        if len(links)>=max_links: break
+    offers=[]
+    for i,link in enumerate(links,1):
         try:
-            boton.first.click(timeout=2000)
-        except Exception:
-            pass
-
-
-def _buscar_links_por_termino(page, termino):
-    print(f"  [{NOMBRE}] Buscando '{termino}'")
-    url = f"{BASE_URL}?keywords={quote_plus(termino)}&location=Chile"
-    page.goto(url, wait_until="load", timeout=30000)
-    page.wait_for_timeout(PAUSA_MS)
-
-    if "linkedin.com/authwall" in page.url or "checkpoint" in page.url:
-        print("    Bloqueado (authwall/checkpoint), se omite este término")
-        return set()
-
-    links = page.locator('a.base-card__full-link, a[href*="/jobs/view/"]').evaluate_all(
-        "els => [...new Set(els.map(e => e.href.split('?')[0]))]"
-    )
-    links = links[:MAX_OFERTAS_POR_TERMINO]
-    print(f"    {len(links)} ofertas a procesar (de las encontradas en la página)")
-    return set(links)
-
-
-def _extraer_oferta(page, link):
-    page.goto(link, wait_until="load", timeout=30000)
-    page.wait_for_timeout(PAUSA_MS)
-    _cerrar_modal_login(page)
-
-    if "linkedin.com/authwall" in page.url or "checkpoint" in page.url:
-        raise RuntimeError("bloqueado por authwall/checkpoint")
-
-    titulo = page.locator(".top-card-layout__title").first.inner_text().strip()
-
-    empresa_loc = page.locator(".topcard__org-name-link")
-    empresa = empresa_loc.first.inner_text().strip() if empresa_loc.count() > 0 else ""
-
-    modalidad_loc = page.locator(".topcard__flavor--bullet")
-    modalidad = modalidad_loc.first.inner_text().strip() if modalidad_loc.count() > 0 else ""
-
-    desc_loc = page.locator(".description__text")
-    descripcion = desc_loc.first.inner_text().strip() if desc_loc.count() > 0 else ""
-
-    return {
-        "titulo": titulo,
-        "empresa": empresa,
-        "descripcion": descripcion,
-        "modalidad": modalidad,
-        "link": link,
-        "fuente": NOMBRE,
-    }
-
-
-def buscar_ofertas(browser, terminos=None):
-    page = nueva_pagina(browser)
-
-    todos_los_links = set()
-    for termino in (terminos or TERMINOS_BUSQUEDA):
-        try:
-            todos_los_links.update(_buscar_links_por_termino(page, termino))
-        except Exception as e:
-            print(f"    ERROR buscando '{termino}': {e}")
-        page.wait_for_timeout(PAUSA_MS)
-
-    ofertas = []
-    for link in sorted(todos_los_links):
-        try:
-            oferta = _extraer_oferta(page, link)
-        except Exception as e:
-            print(f"    ERROR al procesar {link}: {e}")
-            continue
-        ofertas.append(oferta)
-        page.wait_for_timeout(PAUSA_MS)
-
-    page.close()
-    return ofertas
+            if progreso: progreso(f"LinkedIn · leyendo {i}/{len(links)}")
+            o=_detail(get_html(link,timeout=10),link)
+            if o: offers.append(o)
+        except Exception: continue
+    return offers

@@ -24,7 +24,7 @@ def _buscar_links_por_termino(page, termino):
         sufijo = "" if num_pagina == 1 else f"?page={num_pagina}"
         slug = termino.strip().lower().replace(" ", "-")
         url = f"{BASE_URL}/empleos-busqueda-{slug}.html{sufijo}"
-        page.goto(url, wait_until="domcontentloaded", timeout=12000)
+        page.goto(url, wait_until="domcontentloaded", timeout=8000)
         page.wait_for_timeout(PAUSA_MS)
 
         nuevos = page.locator('a[href^="/empleos/"]').evaluate_all("els => els.map(e => e.href)")
@@ -40,7 +40,7 @@ def _buscar_links_por_termino(page, termino):
 
 
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="domcontentloaded", timeout=12000)
+    page.goto(link, wait_until="domcontentloaded", timeout=8000)
     page.wait_for_timeout(250)
 
     titulo = page.locator("h1[aria-label]").first.inner_text().strip()
@@ -64,11 +64,13 @@ def _extraer_oferta(page, link):
     }
 
 
-def buscar_ofertas(browser, terminos=None):
+def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     page = nueva_pagina(browser)
 
     todos_los_links = set()
-    for termino in list(terminos or TERMINOS_BUSQUEDA)[:6]:
+    limite_terminos = 2 if modo == "rapida" else 5
+    for idx, termino in enumerate(list(terminos or TERMINOS_BUSQUEDA)[:limite_terminos], 1):
+        if progreso: progreso(f"Laborum · búsqueda {idx}/{limite_terminos} · {termino}")
         try:
             todos_los_links.update(_buscar_links_por_termino(page, termino))
         except Exception as e:
@@ -76,7 +78,9 @@ def buscar_ofertas(browser, terminos=None):
         page.wait_for_timeout(PAUSA_MS)
 
     ofertas = []
-    for link in sorted(todos_los_links)[:15]:
+    limite_detalles = 5 if modo == "rapida" else 12
+    for idx, link in enumerate(sorted(todos_los_links)[:limite_detalles], 1):
+        if progreso: progreso(f"Laborum · validando {idx}/{min(len(todos_los_links), limite_detalles)}")
         try:
             oferta = _extraer_oferta(page, link)
         except Exception as e:

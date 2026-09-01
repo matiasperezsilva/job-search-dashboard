@@ -7,6 +7,7 @@ El contenedor inicia:
 1. FastAPI en `127.0.0.1:8000`.
 2. Next.js en el puerto público entregado por Render.
 3. Next.js redirige `/api/backend/*` hacia FastAPI internamente.
+4. Render comprueba `/api/health`; ese endpoint solo responde `200` cuando Next.js **y** FastAPI están disponibles.
 
 ## Variables requeridas
 
@@ -16,8 +17,24 @@ El contenedor inicia:
 
 Opcionales para cartas inteligentes:
 
-- `LETTER_API_BASE_URL`
-- `LETTER_API_KEY`
-- `LETTER_API_MODEL`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL=gemini-3.5-flash-lite`
 
-El endpoint `/_stcore/health` se conserva como health check por compatibilidad con el servicio de Render ya creado, aunque la aplicación ya no utiliza Streamlit.
+## Supabase Auth
+
+En **Authentication → URL Configuration**:
+
+- `Site URL`: URL raíz de producción en Render.
+- Redirect URL permitida: `https://TU-SERVICIO.onrender.com/account/update-password`.
+
+Nunca agregues `service_role`, contraseñas ni API keys privadas al repositorio.
+
+## Base de datos
+
+El esquema reproducible está versionado en:
+
+```text
+supabase/migrations/001_initial_schema.sql
+```
+
+Incluye tablas, claves foráneas, índices y políticas RLS.

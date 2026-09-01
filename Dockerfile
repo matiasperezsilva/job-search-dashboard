@@ -2,7 +2,8 @@ FROM node:22-bookworm-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /app
 
@@ -24,5 +25,4 @@ RUN chmod +x /app/start.sh
 RUN npm run build
 
 EXPOSE 3000
-
 CMD ["/bin/bash", "/app/start.sh"]

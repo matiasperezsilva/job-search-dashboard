@@ -56,6 +56,16 @@ class ScoringTests(unittest.TestCase):
         }
         self.assertEqual(evaluar_oferta(oferta, self.perfil)["puntaje"], 0)
 
+    def test_generalista_no_sube_por_skills_sin_cargo_objetivo(self):
+        oferta = {
+            "titulo": "Coordinador de Operaciones Comerciales",
+            "descripcion": "Uso de SQL, Jira, APIs REST, Linux y AWS para coordinar procesos.",
+            "fuente": "Computrabajo",
+            "link": "https://cl.computrabajo.com/ofertas-de-trabajo/oferta-de-trabajo-de-coordinador-operaciones-abc",
+        }
+        self.assertLess(evaluar_oferta(oferta, self.perfil)["puntaje"], 30)
+
+
 
 if __name__ == "__main__":
     unittest.main()

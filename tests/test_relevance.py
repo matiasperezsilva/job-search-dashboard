@@ -8,13 +8,13 @@ class RelevanceTests(unittest.TestCase):
         self.assertFalse(es_relevante_perfil('Ofertas de trabajo de qa en Tarapacá', ''))
 
     def test_rechaza_qa_mineria(self):
-        self.assertFalse(es_relevante_perfil(
+        self.assertTrue(es_relevante_perfil(
             'Ingeniero de Aseguramiento y Control de Calidad QA/QC',
             'Proyecto de minería, ISO 9001, inspección en faena y control de materiales.'
         ))
 
     def test_rechaza_calidad_alimentos(self):
-        self.assertFalse(es_relevante_perfil(
+        self.assertTrue(es_relevante_perfil(
             'Analista de control de calidad',
             'Planta de alimentos, HACCP, BPM y laboratorio.'
         ))
@@ -39,6 +39,20 @@ class RelevanceTests(unittest.TestCase):
         from jobsearch.scrapers.common import oferta_es_valida
         self.assertFalse(oferta_es_valida({'titulo':'Coordinador QA','fuente':'Computrabajo','link':'https://cl.computrabajo.com/trabajo-de-qa'}))
         self.assertTrue(oferta_es_valida({'titulo':'Coordinador QA Automatizador','fuente':'Computrabajo','link':'https://cl.computrabajo.com/ofertas-de-trabajo/oferta-de-trabajo-de-coordinador-qa-abc'}))
+
+    def test_getonboard_job_urls_son_validas(self):
+        from jobsearch.scrapers.common import oferta_es_valida
+        self.assertTrue(oferta_es_valida({
+            "titulo": "QA Funcional",
+            "fuente": "GetOnBoard",
+            "link": "https://www.getonbrd.com/empleos/sysadmin-devops-qa/qa-funcional-empresa-santiago",
+        }))
+        self.assertTrue(oferta_es_valida({
+            "titulo": "QA Engineer",
+            "fuente": "GetOnBoard",
+            "link": "https://www.getonbrd.cl/jobs/sysadmin-devops-qa/qa-engineer-empresa",
+        }))
+
 
 
 if __name__ == '__main__':

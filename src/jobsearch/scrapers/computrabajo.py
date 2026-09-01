@@ -9,7 +9,7 @@ import unicodedata
 from urllib.parse import quote
 
 from .common import es_relevante_perfil
-from .http_common import absolute, jobposting_jsonld, location_text, organization_name, soup, text_from_html
+from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
 
 USES_BROWSER = False
 
@@ -50,6 +50,7 @@ def _extraer(link):
         empresa = organization_name(job.get("hiringOrganization"))
         descripcion = text_from_html(job.get("description") or "")
         modalidad = location_text(job.get("jobLocation"))
+        publicada = date_posted(job)
     else:
         h1 = doc.find("h1")
         titulo = h1.get_text(" ", strip=True) if h1 else ""
@@ -58,9 +59,10 @@ def _extraer(link):
         descripcion = doc.get_text(" ", strip=True)
         empresa = ""
         modalidad = ""
+        publicada = ""
     if not titulo:
         raise ValueError("No se identificó título de vacante")
-    return {"titulo": titulo, "empresa": empresa, "descripcion": descripcion, "modalidad": modalidad, "link": link, "fuente": NOMBRE}
+    return {"titulo": titulo, "empresa": empresa, "descripcion": descripcion, "modalidad": modalidad, "link": link, "fuente": NOMBRE, "published_at": publicada}
 
 
 def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
@@ -83,7 +85,7 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
         if progreso: progreso(f"Computrabajo · validando {idx}/{min(len(links), limit)}")
         try:
             oferta = _extraer(link)
-            if es_relevante_perfil(oferta["titulo"], oferta["descripcion"]):
+            if es_relevante_perfil(oferta["titulo"], oferta["descripcion"], terminos):
                 ofertas.append(oferta)
         except Exception:
             continue

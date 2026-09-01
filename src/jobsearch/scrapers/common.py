@@ -108,7 +108,7 @@ def enlace_es_vacante_individual(oferta: dict) -> bool:
     if fuente == "computrabajo":
         return "/ofertas-de-trabajo/oferta-de-trabajo-de-" in link
     if fuente == "getonboard":
-        return bool(re.search(r"getonbrd\.com/(?:jobs|empleos)/[^/]+/[^/?#]+", link))
+        return bool(re.search(r"getonbrd\.(?:com|cl|com\.mx|com\.pe|com\.co|com\.ar)/(?:jobs|empleos)/[^/]+/[^/?#]+", link))
     return True
 
 
@@ -130,37 +130,25 @@ def contexto_calidad_no_software(titulo: str, descripcion: str = "") -> int:
 
 
 def titulo_parece_relevante(titulo, terminos=None):
+    """Prefiltro transversal: usa roles objetivo del perfil, no una lista fija TI."""
     titulo = (titulo or "").strip()
-    if not titulo or es_pagina_busqueda(titulo) or _TITULOS_NO_OBJETIVO.search(titulo):
+    if not titulo or es_pagina_busqueda(titulo):
         return False
-    if _TITULOS_TECNICOS.search(titulo):
-        return True
     t = _norm(titulo)
-    # Nunca usar skills genéricas (sql, linux, java...) como sustituto de un rol.
-    return any(
-        _norm(term) in t
-        for term in (terminos or [])
-        if len(term.strip()) >= 4 and any(k in _norm(term) for k in ("qa", "tester", "cloud", "dba", "soporte", "analista"))
-    )
-
-
-def es_relevante_perfil(titulo, descripcion=""):
-    titulo = (titulo or "").strip()
-    if not titulo or es_pagina_busqueda(titulo) or _TITULOS_NO_OBJETIVO.search(titulo):
-        return False
-
-    software = contexto_software(titulo, descripcion)
-    no_software = contexto_calidad_no_software(titulo, descripcion)
-    tnorm = _norm(titulo)
-
-    # QA ambiguo necesita contexto tecnológico real. Un QA/QC industrial con ISO,
-    # minería, planta, alimentos, etc. se descarta incluso si incluye "QA".
-    qa_ambiguo = bool(re.search(r"\b(qa|quality|calidad|tester|testing)\b", tnorm))
-    if qa_ambiguo:
-        if no_software >= 1 and software < 2:
-            return False
-        return software >= 1 or bool(re.search(r"\b(qa (engineer|analyst|automation|manual|funcional|software)|sdet|tester de software)\b", tnorm))
-
-    if _TITULOS_TECNICOS.search(titulo):
+    valid_terms = [_norm(x) for x in (terminos or []) if len((x or "").strip()) >= 3]
+    if not valid_terms:
         return True
-    return software >= 2
+    return any(term in t or t in term for term in valid_terms)
+
+
+def es_relevante_perfil(titulo, descripcion="", terminos=None):
+    """Compatibilidad: relevancia genérica basada en roles objetivo.
+
+    El matching definitivo ocurre en scoring.py con el perfil completo.
+    """
+    titulo = (titulo or "").strip()
+    if not titulo or es_pagina_busqueda(titulo):
+        return False
+    if terminos:
+        return titulo_parece_relevante(titulo, terminos)
+    return True

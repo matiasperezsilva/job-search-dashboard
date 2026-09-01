@@ -41,6 +41,12 @@ class SupabaseRest:
         r.raise_for_status()
         return r.json()
 
+    def insert(self, table: str, row: dict):
+        headers = {"Prefer": "return=representation"}
+        r = self.session.post(self._rest(table), json=row, headers=headers, timeout=20)
+        r.raise_for_status()
+        return r.json()
+
     def upsert(self, table: str, row: dict, on_conflict: str):
         headers = {"Prefer": "resolution=merge-duplicates,return=representation"}
         r = self.session.post(

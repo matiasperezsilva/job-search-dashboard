@@ -1,33 +1,52 @@
-# Arquitectura V4
+# Arquitectura V5
 
-La interfaz Streamlit fue reemplazada por **Next.js/React**. El motor de scraping y matching continúa en Python para aprovechar los adaptadores existentes y evitar una reescritura innecesaria.
+La aplicación separa la experiencia web del motor de búsqueda para evitar que los scrapers condicionen la interfaz.
 
 ```text
-                    Render Web Service
-                          │
-             ┌────────────┴────────────┐
-             │                         │
-          Next.js                  FastAPI
-          React UI                   API
-             │                         │
-             └──────────┬──────────────┘
-                        │
-                      Python
-             ┌──────────┼──────────┐
-             ▼          ▼          ▼
-         CV parser   Scoring    Scrapers
-                        │          │
-                        │          ▼
-                        │     Portales empleo
-                        ▼
-                    Supabase
-                Auth + PostgreSQL
+                        Render Web Service
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+              Next.js                  FastAPI
+              React UI                   API
+                 │                         │
+                 │                  Background task
+                 │                         │
+                 │                  Motor Python
+                 │             ┌───────────┼───────────┐
+                 │             ▼           ▼           ▼
+                 │         CV parser    Scoring     Scrapers
+                 │                                     │
+                 │                                     ▼
+                 │                               Portales empleo
+                 │
+                 └──────────────────┬──────────────────┘
+                                    ▼
+                                Supabase
+                     Auth + PostgreSQL + RLS
 ```
 
-## Motivo del cambio
+## Búsquedas asíncronas
 
-Streamlit permitió validar rápidamente el flujo, pero limitaba demasiado la calidad visual y la interacción. Next.js permite controlar completamente layout, navegación, tarjetas, paneles de detalle, estados responsive y acciones de postulación.
+El endpoint `POST /search` ya no espera a que terminen todos los portales. Crea una fila en `search_runs`, responde inmediatamente con un `run_id` y ejecuta la recolección en segundo plano.
+
+React consulta `GET /search/{run_id}` cada pocos segundos. El estado persiste en Supabase y contiene progreso por portal, resultados y errores aislados.
+
+Esto evita mantener una petición HTTP abierta durante varios minutos y reduce los timeouts en Render Free.
+
+## Matching
+
+El pipeline aplica validación antes del scoring:
+
+1. comprobar que la URL corresponde a una vacante individual;
+2. descartar páginas SEO/listados;
+3. separar QA de software de QA/QC industrial;
+4. descartar roles comerciales y fuera de objetivo;
+5. exigir coincidencia de cargo en portales generalistas;
+6. recién entonces calcular el puntaje contra el perfil extraído del CV.
 
 ## Seguridad
 
-El navegador autentica mediante Supabase Auth. Cada llamada a FastAPI incluye el `access_token` del usuario. FastAPI valida el token contra Supabase y usa el mismo JWT en las consultas REST, por lo que las políticas RLS existentes siguen separando los datos por usuario.
+El navegador autentica mediante Supabase Auth. Cada llamada a FastAPI incluye el `access_token` del usuario. FastAPI valida la sesión contra Supabase y consulta PostgreSQL usando ese mismo JWT.
+
+Todas las tablas públicas de la aplicación tienen Row Level Security y políticas de propiedad por `user_id`. No se utiliza `service_role` en el frontend ni en FastAPI.

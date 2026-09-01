@@ -17,7 +17,7 @@ PAUSA_MS = 200
 
 def _buscar_links_por_termino(page, termino):
     print(f"  [{NOMBRE}] Buscando '{termino}'")
-    page.goto(f"{BASE_URL}/ofertas?mostrar=empleo", wait_until="domcontentloaded", timeout=12000)
+    page.goto(f"{BASE_URL}/ofertas?mostrar=empleo", wait_until="domcontentloaded", timeout=8000)
     page.wait_for_timeout(250)
     page.fill('input[placeholder*="palabra clave"]', termino)
     page.click('button:has-text("BUSCAR")')
@@ -49,7 +49,7 @@ def _buscar_links_por_termino(page, termino):
 
 
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="domcontentloaded", timeout=12000)
+    page.goto(link, wait_until="domcontentloaded", timeout=8000)
     page.wait_for_timeout(200)
 
     titulo = page.locator("#nombreOferta > span").first.inner_text().strip()
@@ -80,11 +80,13 @@ def _extraer_oferta(page, link):
     }
 
 
-def buscar_ofertas(browser, terminos=None):
+def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     page = nueva_pagina(browser)
 
     todos_los_links = set()
-    for termino in list(terminos or TERMINOS_BUSQUEDA)[:6]:
+    limite_terminos = 1 if modo == "rapida" else 5
+    for idx, termino in enumerate(list(terminos or TERMINOS_BUSQUEDA)[:limite_terminos], 1):
+        if progreso: progreso(f"BNE · búsqueda {idx}/{limite_terminos} · {termino}")
         try:
             todos_los_links.update(_buscar_links_por_termino(page, termino))
         except Exception as e:
@@ -92,7 +94,9 @@ def buscar_ofertas(browser, terminos=None):
         page.wait_for_timeout(PAUSA_MS)
 
     ofertas = []
-    for link in sorted(todos_los_links)[:15]:
+    limite_detalles = 4 if modo == "rapida" else 12
+    for idx, link in enumerate(sorted(todos_los_links)[:limite_detalles], 1):
+        if progreso: progreso(f"BNE · validando {idx}/{min(len(todos_los_links), limite_detalles)}")
         try:
             oferta = _extraer_oferta(page, link)
         except Exception as e:

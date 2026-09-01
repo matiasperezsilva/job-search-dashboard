@@ -40,3 +40,18 @@ class TestLetters(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_sanitiza_contacto_antes_de_ia():
+    from jobsearch.services.letters import _sanitizar_cv_para_ia
+    texto = "Matías correo test@example.com teléfono +56 9 1234 5678 https://linkedin.com/in/test"
+    limpio = _sanitizar_cv_para_ia(texto)
+    assert "test@example.com" not in limpio
+    assert "1234 5678" not in limpio
+    assert "linkedin.com" not in limpio
+
+
+def test_parse_gemini_content():
+    from jobsearch.services.letters import _extraer_contenido_gemini
+    data = {"candidates": [{"content": {"parts": [{"text": "Carta de prueba"}]}}]}
+    assert _extraer_contenido_gemini(data) == "Carta de prueba"

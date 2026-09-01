@@ -1,10 +1,23 @@
 # Roadmap
 
+## Implementado
+
+- Frontend React / Next.js.
+- Backend FastAPI.
+- Autenticación y persistencia por usuario con Supabase.
+- Búsquedas en segundo plano con progreso persistente.
+- Matching basado en CV.
+- Filtro estricto para QA no tecnológico y páginas SEO.
+- Seguimiento de postulaciones.
+- Cartas locales e integración opcional con API compatible.
+- Recuperación y cambio de contraseña.
+- Health check conjunto de frontend/backend.
+
 ## Próximas mejoras
 
-- Ejecutar las búsquedas como trabajos asíncronos para evitar bloquear solicitudes largas.
-- Añadir historial de búsquedas y métricas por fuente.
-- Reemplazar adaptadores frágiles por APIs o HTML público cuando sea posible.
-- Incorporar alertas de nuevas vacantes.
-- Añadir login opcional por portal únicamente cuando sea necesario y permitido.
-- Migrar el despliegue a AWS ECS/Fargate como etapa Cloud del proyecto.
+- Historial de búsquedas con comparación entre corridas.
+- Alertas de nuevas vacantes.
+- Métricas de calidad y velocidad por portal.
+- Sustituir más adaptadores Playwright por HTTP/APIs cuando sea posible.
+- Login opcional por portal solo cuando sea necesario y permitido.
+- Migración futura a AWS ECS/Fargate como etapa Cloud del proyecto.

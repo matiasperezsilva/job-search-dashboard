@@ -1,62 +1,62 @@
-"""Adaptador de búsqueda para chiletrabajos."""
+"""ChileTrabajos mediante páginas públicas, sin Chromium."""
 
-from .common import nueva_pagina
+import re
+from urllib.parse import quote_plus
 
+from .common import es_relevante_perfil, titulo_parece_relevante
+from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
+
+USES_BROWSER = False
 NOMBRE = "ChileTrabajos"
 BASE_URL = "https://www.chiletrabajos.cl"
-TERMINOS_BUSQUEDA = [
-    "QA", "tester", "quality assurance",
-    "DBA", "administrador de base de datos",
-    "soporte cloud",
-    "analista funcional",
-    "soporte TI",
-]
-MAX_PAGINAS_POR_TERMINO = 1
-PAUSA_MS = 200
+MAX_TERMINOS_RAPIDA = 2
+MAX_DETALLES_RAPIDA = 8
 
 
-def _buscar_links_por_termino(page, termino):
-    print(f"  [{NOMBRE}] Buscando '{termino}'")
-    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=12000)
-    page.fill('input[placeholder="Trabajo ej: Analista"]', termino)
-    page.click("#frm-landingPage1-submit")
-    page.wait_for_load_state("domcontentloaded", timeout=6000)
-    page.wait_for_timeout(PAUSA_MS)
-
-    links = set()
-    for num_pagina in range(1, MAX_PAGINAS_POR_TERMINO + 1):
-        nuevos = page.locator("h2.title a").evaluate_all("els => els.map(e => e.href)")
-        links.update(nuevos)
-
-        siguiente = page.locator('a[data-ci-pagination-page][rel="next"]')
-        if num_pagina >= MAX_PAGINAS_POR_TERMINO or siguiente.count() == 0:
-            break
-        try:
-            siguiente.first.click(timeout=3000)
-            page.wait_for_load_state("domcontentloaded", timeout=6000)
-            page.wait_for_timeout(PAUSA_MS)
-        except Exception:
-            break
-
-    print(f"    {len(links)} ofertas encontradas")
+def _links_busqueda(termino: str):
+    query = quote_plus(termino.strip())
+    url = f"{BASE_URL}/encuentra-un-empleo/?2={query}&filterSearch=Buscar"
+    doc = soup(url, timeout=8)
+    links, seen = [], set()
+    for a in doc.find_all("a", href=True):
+        href = (a.get("href") or "").strip()
+        if not re.match(r"^/trabajo/(?:[\w-]+-)?\d+/?$", href):
+            continue
+        link = absolute(BASE_URL, href).split("?")[0]
+        if link not in seen:
+            seen.add(link)
+            links.append((link, a.get_text(" ", strip=True)))
     return links
 
 
-def _extraer_oferta(page, link):
-    page.goto(link, wait_until="domcontentloaded", timeout=12000)
-    page.wait_for_timeout(150)
+def _texto_celda(doc, etiqueta: str) -> str:
+    for cell in doc.find_all(["td", "th"]):
+        if cell.get_text(" ", strip=True).lower() == etiqueta.lower():
+            nxt = cell.find_next_sibling("td")
+            if nxt:
+                return nxt.get_text(" ", strip=True)
+    return ""
 
-    titulo = page.locator("h1.titulo-detalle").first.inner_text().strip()
 
-    empresa_loc = page.locator('td:has-text("Buscado") + td a')
-    empresa = empresa_loc.first.inner_text().strip() if empresa_loc.count() > 0 else ""
-
-    ubicacion_loc = page.locator('td a[href*="/ciudad/"]')
-    modalidad = ubicacion_loc.first.inner_text().strip() if ubicacion_loc.count() > 0 else ""
-
-    descripcion_loc = page.locator("div.p-x-3.overflow-hidden")
-    descripcion = descripcion_loc.first.inner_text().strip() if descripcion_loc.count() > 0 else ""
-
+def _extraer(link: str):
+    doc = soup(link, timeout=8)
+    job = jobposting_jsonld(doc)
+    if job:
+        titulo = str(job.get("title") or "").strip()
+        empresa = organization_name(job.get("hiringOrganization"))
+        descripcion = text_from_html(job.get("description") or "")
+        modalidad = location_text(job.get("jobLocation"))
+        publicada = date_posted(job)
+    else:
+        h1 = doc.find("h1")
+        titulo = h1.get_text(" ", strip=True) if h1 else ""
+        empresa = _texto_celda(doc, "Buscado")
+        modalidad = _texto_celda(doc, "Ubicación")
+        # El texto completo es un fallback estable; el filtro posterior exige contexto TI.
+        descripcion = doc.get_text(" ", strip=True)
+        publicada = ""
+    if not titulo:
+        raise ValueError("ChileTrabajos no entregó título para la vacante")
     return {
         "titulo": titulo,
         "empresa": empresa,
@@ -64,29 +64,39 @@ def _extraer_oferta(page, link):
         "modalidad": modalidad,
         "link": link,
         "fuente": NOMBRE,
+        "published_at": publicada,
     }
 
 
-def buscar_ofertas(browser, terminos=None):
-    page = nueva_pagina(browser)
+def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
+    limite_terminos = MAX_TERMINOS_RAPIDA if modo == "rapida" else 5
+    terminos = list(dict.fromkeys(terminos or []))[:limite_terminos]
+    items, seen = [], set()
 
-    todos_los_links = set()
-    for termino in list(terminos or TERMINOS_BUSQUEDA)[:6]:
+    for idx, termino in enumerate(terminos, 1):
+        if progreso:
+            progreso(f"ChileTrabajos · {idx}/{len(terminos)} · {termino}")
         try:
-            todos_los_links.update(_buscar_links_por_termino(page, termino))
-        except Exception as e:
-            print(f"    ERROR buscando '{termino}': {e}")
-        page.wait_for_timeout(PAUSA_MS)
+            for link, hint in _links_busqueda(termino):
+                if link not in seen:
+                    seen.add(link)
+                    items.append((link, hint))
+        except Exception as exc:
+            if progreso:
+                progreso(f"ChileTrabajos · consulta omitida: {type(exc).__name__}")
 
+    # Títulos que ya parecen del perfil se leen primero.
+    items.sort(key=lambda item: 0 if titulo_parece_relevante(item[1], terminos) else 1)
+    limite = MAX_DETALLES_RAPIDA if modo == "rapida" else 18
     ofertas = []
-    for link in sorted(todos_los_links)[:15]:
-        try:
-            oferta = _extraer_oferta(page, link)
-        except Exception as e:
-            print(f"    ERROR al procesar {link}: {e}")
-            continue
-        ofertas.append(oferta)
-        page.wait_for_timeout(PAUSA_MS)
 
-    page.close()
+    for idx, (link, _hint) in enumerate(items[:limite], 1):
+        if progreso:
+            progreso(f"ChileTrabajos · validando {idx}/{min(len(items), limite)}")
+        try:
+            oferta = _extraer(link)
+            if es_relevante_perfil(oferta["titulo"], oferta["descripcion"], terminos):
+                ofertas.append(oferta)
+        except Exception:
+            continue
     return ofertas
