@@ -1,3 +1,20 @@
+## 5.7.9 — Gestión editable de postulaciones
+- Las tarjetas de Postulaciones ahora permiten editar estado y notas directamente.
+- Se puede quitar una vacante del seguimiento con confirmación.
+- Quitar seguimiento elimina solo el registro de `applications`; la oferta permanece y vuelve a Oportunidades como `Sin gestionar`.
+- La pantalla muestra feedback después de actualizar o quitar un proceso.
+- Las oportunidades antiguas gestionadas siguen siendo accesibles en seguimiento.
+- 67 pruebas automatizadas aprobadas.
+
+## 5.7.8 — Diagnóstico de fuentes + favicon
+- Cada portal reporta ahora diagnóstico estructurado: enlaces encontrados, fichas extraídas, descartes, errores de detalle, errores de consulta y bloqueo anti-bot.
+- La interfaz distingue entre: resultados válidos, sin match válido, sin enlaces detectados, fallo de extracción, bloqueo anti-bot, fallo de consulta y error de fuente.
+- Laborum, Trabajando.com y BNE exponen métricas internas para evitar interpretar cualquier 0 como “no hay ofertas”.
+- El progreso en segundo plano conserva el diagnóstico por fuente.
+- Se añadió un favicon/app icon SVG con la identidad “JS” de Job Search.
+- Se corrigió texto residual del login que seguía hablando de software pese a que la app es multiprofesional.
+- 65 pruebas automatizadas aprobadas.
+
 ## 5.7.7 — Guardado verificable de cartas
 - “Guardar borrador” muestra estados visibles: Guardando…, Guardado ✓, cambios sin guardar y error.
 - El backend valida contenido y modo antes de persistir.

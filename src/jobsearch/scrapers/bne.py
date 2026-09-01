@@ -3,6 +3,12 @@
 from .common import nueva_pagina
 
 NOMBRE = "BNE"
+_LAST_DIAGNOSTIC = {}
+
+
+def get_last_diagnostic():
+    return dict(_LAST_DIAGNOSTIC)
+
 BASE_URL = "https://www.bne.cl"
 TERMINOS_BUSQUEDA = [
     "QA", "tester", "analista de pruebas", "quality assurance",
@@ -86,6 +92,8 @@ def _extraer_oferta(page, link):
 
 
 def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
+    global _LAST_DIAGNOSTIC
+    _LAST_DIAGNOSTIC = {"links_found": 0, "offers_extracted": 0, "detail_errors": 0, "query_errors": 0, "blocked": False}
     page = nueva_pagina(browser)
 
     todos_los_links = set()
@@ -94,10 +102,15 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
         if progreso: progreso(f"BNE · búsqueda {idx}/{limite_terminos} · {termino}")
         try:
             todos_los_links.update(_buscar_links_por_termino(page, termino))
+            body = page.locator("body").inner_text().lower() if page.locator("body").count() else ""
+            if any(x in body for x in ("captcha", "access denied", "verifica que eres humano", "verify you are human", "cloudflare")):
+                _LAST_DIAGNOSTIC["blocked"] = True
         except Exception as e:
+            _LAST_DIAGNOSTIC["query_errors"] += 1
             print(f"    ERROR buscando '{termino}': {e}")
         page.wait_for_timeout(PAUSA_MS)
 
+    _LAST_DIAGNOSTIC["links_found"] = len(todos_los_links)
     ofertas = []
     limite_detalles = 4 if modo == "rapida" else 12
     for idx, link in enumerate(sorted(todos_los_links)[:limite_detalles], 1):
@@ -105,9 +118,11 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
         try:
             oferta = _extraer_oferta(page, link)
         except Exception as e:
+            _LAST_DIAGNOSTIC["detail_errors"] += 1
             print(f"    ERROR al procesar {link}: {e}")
             continue
         ofertas.append(oferta)
+        _LAST_DIAGNOSTIC["offers_extracted"] += 1
         page.wait_for_timeout(PAUSA_MS)
 
     page.close()

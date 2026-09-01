@@ -9,6 +9,12 @@ from .http_common import absolute, date_posted, jobposting_jsonld, location_text
 
 USES_BROWSER = False
 NOMBRE = "Trabajando.com"
+_LAST_DIAGNOSTIC = {}
+
+
+def get_last_diagnostic():
+    return dict(_LAST_DIAGNOSTIC)
+
 BASE_URL = "https://www.trabajando.cl"
 MAX_TERMINOS_RAPIDA = 4
 MAX_DETALLES_RAPIDA = 12
@@ -74,6 +80,8 @@ def _extraer(link: str):
 
 
 def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
+    global _LAST_DIAGNOSTIC
+    _LAST_DIAGNOSTIC = {"links_found": 0, "offers_extracted": 0, "detail_errors": 0, "query_errors": 0, "blocked": False}
     limite_terminos = MAX_TERMINOS_RAPIDA if modo == "rapida" else 5
     terminos = list(dict.fromkeys(terminos or []))[:limite_terminos]
     items, seen = [], set()
@@ -87,9 +95,11 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
                     seen.add(link)
                     items.append((link, hint))
         except Exception as exc:
+            _LAST_DIAGNOSTIC["query_errors"] += 1
             if progreso:
                 progreso(f"Trabajando.com · consulta omitida: {type(exc).__name__}")
 
+    _LAST_DIAGNOSTIC["links_found"] = len(items)
     items.sort(key=lambda item: 0 if titulo_parece_relevante(item[1], terminos) else 1)
     limite = MAX_DETALLES_RAPIDA if modo == "rapida" else 18
     ofertas = []
@@ -98,8 +108,11 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
             progreso(f"Trabajando.com · validando {idx}/{min(len(items), limite)}")
         try:
             oferta = _extraer(link)
-            if es_relevante_perfil(oferta["titulo"], oferta["descripcion"], terminos):
-                ofertas.append(oferta)
+            _LAST_DIAGNOSTIC["offers_extracted"] += 1
+            # El filtro definitivo se aplica en collector.py para poder diagnosticar
+            # correctamente si la fuente extrae ofertas que luego no calzan.
+            ofertas.append(oferta)
         except Exception:
+            _LAST_DIAGNOSTIC["detail_errors"] += 1
             continue
     return ofertas

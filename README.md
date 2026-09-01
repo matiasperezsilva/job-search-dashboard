@@ -174,3 +174,11 @@ El score explicable limita primero las señales positivas a 100 y luego aplica p
 ## Guardado verificable de cartas
 
 Los borradores de cartas se almacenan en Supabase por usuario y oferta. La interfaz muestra el estado del guardado y verifica el contenido persistido mediante una relectura posterior, evitando confirmaciones falsas o errores silenciosos.
+
+## Diagnóstico de fuentes
+
+La búsqueda distingue entre ausencia de coincidencias y fallos técnicos del portal. Cada adaptador puede informar enlaces detectados, fichas extraídas, descartes por matching, errores de extracción, errores de consulta y bloqueos anti-bot. Esto evita presentar un `0` ambiguo como si necesariamente significara que el portal no tiene vacantes.
+
+## Gestión de postulaciones
+
+La sección de seguimiento permite editar el estado y las notas de cada proceso. Si una vacante fue marcada por error, **Quitar seguimiento** elimina únicamente el registro de seguimiento y devuelve la oferta a Oportunidades como `Sin gestionar`; la vacante no se elimina de la base.

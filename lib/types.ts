@@ -84,7 +84,26 @@ export type ProfileData = {
 export type SearchRun = {
   id: string;
   status: "queued" | "running" | "completed" | "failed";
-  progress?: { message?: string; current_source?: string; source_index?: number; source_total?: number; source_states?: Record<string,{status:string; cantidad?:number; segundos?:number; error?:string}> };
+  progress?: {
+    message?: string;
+    current_source?: string;
+    source_index?: number;
+    source_total?: number;
+    source_states?: Record<string,{
+      status:string;
+      estado?:string;
+      cantidad?:number;
+      segundos?:number;
+      diagnostico?:string;
+      links_found?:number;
+      offers_extracted?:number;
+      filtered_count?:number;
+      detail_errors?:number;
+      query_errors?:number;
+      blocked?:boolean;
+      error?:string;
+    }>;
+  };
   result?: any;
   error?: string;
 };

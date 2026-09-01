@@ -164,10 +164,20 @@ def _execute_search(ctx: UserContext, run_id: str, sources: list[str], terms: li
                 states[fuente] = {"status": "running"}
             if fuente and event.get("tipo") == "resultado_fuente":
                 stat = event.get("estadistica") or {}
+                estado = stat.get("estado") or ("ok" if stat.get("ok") else "error")
+                status = "completed" if estado in {"ok", "empty", "filtered"} else "warning" if estado in {"no_links", "extract_error", "blocked", "query_error"} else "failed"
                 states[fuente] = {
-                    "status": "completed" if stat.get("ok") else "failed",
+                    "status": status,
+                    "estado": estado,
                     "cantidad": stat.get("cantidad", 0),
                     "segundos": stat.get("segundos", 0),
+                    "diagnostico": stat.get("diagnostico", ""),
+                    "links_found": stat.get("links_found", 0),
+                    "offers_extracted": stat.get("offers_extracted", 0),
+                    "filtered_count": stat.get("filtered_count", 0),
+                    "detail_errors": stat.get("detail_errors", 0),
+                    "query_errors": stat.get("query_errors", 0),
+                    "blocked": stat.get("blocked", False),
                 }
             progress_state["source_states"] = states
         else:
@@ -259,6 +269,12 @@ def update_job_flags(job_id: str, body: JobFlagsBody, r: Repository = Depends(re
 def save_application(job_id: str, body: ApplicationBody, r: Repository = Depends(repo)):
     r.save_application(job_id, body.state, body.notes)
     return {"ok": True}
+
+
+@app.delete("/jobs/{job_id}/application")
+def delete_application(job_id: str, r: Repository = Depends(repo)):
+    r.delete_application(job_id)
+    return {"ok": True, "job_id": job_id, "estado": "Sin gestionar"}
 
 @app.get("/jobs/{job_id}/letter")
 def get_letter(job_id: str, r: Repository = Depends(repo)):

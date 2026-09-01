@@ -89,3 +89,30 @@
 .letter-save-status.saved{color:#087a4d}.letter-save-status.error{color:#b42318}
 .saved-button{background:#087a4d!important;border-color:#087a4d!important}
 .error-inline{border-color:#fecaca!important;background:#fff7f7!important;color:#991b1b!important}
+
+.source-stat{position:relative}
+.source-stat-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.source-health-dot{width:8px;height:8px;border-radius:999px;background:#10b981;box-shadow:0 0 0 3px rgba(16,185,129,.10)}
+.source-stat.diagnostic-warn .source-health-dot{background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.11)}
+.source-stat.diagnostic-error .source-health-dot{background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.10)}
+.source-stat.diagnostic-warn{background:#fffaf0;border-color:#f3d69a}
+.source-stat.diagnostic-error{background:#fff7f7;border-color:#f3bbbb}
+.source-diagnostic-copy{display:block;margin-top:7px;color:#6f7787;line-height:1.35}
+.source-diagnostic-metrics{display:block;margin-top:5px;color:#8a93a3;font-size:10px;line-height:1.35}
+.source-progress-item.warning .source-state-dot{background:#f59e0b}
+.source-progress-item.failed .source-state-dot{background:#ef4444}
+
+.applications-toolbar{display:flex;align-items:end;justify-content:space-between;gap:18px;margin-bottom:16px}
+.applications-message{margin-bottom:16px}
+.application-card.managed{transition:border-color .18s ease,box-shadow .18s ease}
+.application-card.managed.editing{border-color:#aeb7ff;box-shadow:0 10px 30px rgba(86,96,230,.08)}
+.application-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.application-card-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.icon-text-btn{border:1px solid #dfe4ec;background:#fff;border-radius:10px;padding:7px 10px;font-size:12px;font-weight:700;color:#475569;cursor:pointer}
+.icon-text-btn:hover{background:#f8fafc;border-color:#c8d0dc}.icon-text-btn:disabled{opacity:.55;cursor:not-allowed}
+.icon-text-btn.danger{color:#b42318;border-color:#f2c7c3;background:#fffafa}
+.icon-text-btn.danger:hover{background:#fff1f0}
+.application-editor{margin-top:14px;padding:14px;border-radius:14px;background:#f8faff;border:1px solid #e7eaff;display:grid;gap:12px}
+.application-editor label{display:grid;gap:6px;font-size:12px;font-weight:700;color:#4d5869}
+.application-editor select,.application-editor textarea{width:100%}
+@media(max-width:720px){.applications-toolbar,.application-card-head{align-items:stretch;flex-direction:column}.application-card-actions{justify-content:flex-start}}

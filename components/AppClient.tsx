@@ -102,7 +102,7 @@ function AuthView({ supabase }: { supabase: SupabaseClient }) {
         <div className="brand-mark large">JS</div>
         <div className="auth-brand-copy"><span className="eyebrow">JOB SEARCH DASHBOARD</span><h1>Encuentra oportunidades que sí calzan contigo.</h1><p>Tu CV se convierte en un perfil de búsqueda inteligente. Encuentra vacantes, prioriza el calce y gestiona cada postulación desde un solo lugar.</p></div>
         <div className="feature-row"><span>01</span><p><b>Perfil automático</b><br/>Extraemos áreas, competencias y roles desde tu currículum, sin limitarlo a una industria.</p></div>
-        <div className="feature-row"><span>02</span><p><b>Menos ruido</b><br/>Filtramos cargos ajenos a software, páginas SEO y resultados irrelevantes.</p></div>
+        <div className="feature-row"><span>02</span><p><b>Menos ruido</b><br/>Filtramos páginas SEO, vacantes fuera del perfil y resultados irrelevantes.</p></div>
         <div className="feature-row"><span>03</span><p><b>Seguimiento completo</b><br/>Vacantes, postulaciones y cartas en un mismo flujo.</p></div>
       </section>
       <section className="auth-form-panel"><div className="auth-form-wrap">
@@ -199,12 +199,37 @@ function SearchPage({ token, go }: { token:string; go:(v:View)=>void }) {
 
 function SearchProgress({run}:{run:SearchRun}){
   const p=run.progress||{}; const current=p.current_source||"Preparando"; const i=p.source_index||0; const total=p.source_total||0; const pct=total?Math.max(8,Math.min(96,(i/total)*100)):12; const states=p.source_states||{};
-  return <section className="panel search-progress"><div className="progress-head"><div><span className="pulse-dot"/><div><b>{run.status==="queued"?"Búsqueda en cola":"Buscando oportunidades"}</b><p>{p.message||`Consultando ${current}…`}</p></div></div><span>{i}/{total||"—"} fuentes</span></div><div className="progress-track"><i style={{width:`${pct}%`}}/></div><div className="source-progress-list">{Object.entries(states).map(([name,state])=><div key={name} className={`source-progress-item ${state.status}`}><span className="source-state-dot"/><b>{name}</b><small>{state.status==="pending"?"Pendiente":state.status==="running"?"Procesando…":state.status==="completed"?`${state.cantidad||0} resultados · ${state.segundos||0}s`:"No disponible"}</small></div>)}</div><small>La búsqueda corre en segundo plano. Puedes cambiar de sección y volver sin perder el progreso.</small></section>
+  return <section className="panel search-progress"><div className="progress-head"><div><span className="pulse-dot"/><div><b>{run.status==="queued"?"Búsqueda en cola":"Buscando oportunidades"}</b><p>{p.message||`Consultando ${current}…`}</p></div></div><span>{i}/{total||"—"} fuentes</span></div><div className="progress-track"><i style={{width:`${pct}%`}}/></div><div className="source-progress-list">{Object.entries(states).map(([name,state])=><div key={name} className={`source-progress-item ${state.status} ${state.estado||""}`}><span className="source-state-dot"/><b>{name}</b><small>{sourceProgressText(state)}</small></div>)}</div><small>La búsqueda corre en segundo plano. Puedes cambiar de sección y volver sin perder el progreso.</small></section>
 }
 
 
 function SearchResult({result,onView}:{result:any;onView:()=>void}){
-  return <section className="panel result-panel"><div className="result-top"><div><span className="success-icon">✓</span><div><h3>Búsqueda finalizada</h3><p>{result.found} vacantes relevantes · {result.new} nuevas guardadas</p></div></div><button className="btn dark" onClick={onView}>Ver oportunidades <ArrowRightIcon size={16}/></button></div><div className="stats-strip">{(result.stats||[]).map((s:any)=><div className={`source-stat ${s.estado||""}`} key={s.fuente}><b>{s.fuente}</b><span>{s.cantidad>0?`${s.cantidad} resultados · ${s.segundos}s`:s.ok?`Sin coincidencias válidas · ${s.segundos}s`:`Error de fuente · ${s.segundos}s`}</span></div>)}</div>{(result.errors||[]).length>0&&<div className="source-errors">{result.errors.map((e:any)=><span key={e.fuente}>{e.fuente}: {e.error}</span>)}</div>}</section>
+  return <section className="panel result-panel"><div className="result-top"><div><span className="success-icon">✓</span><div><h3>Búsqueda finalizada</h3><p>{result.found} vacantes relevantes · {result.new} nuevas guardadas</p></div></div><button className="btn dark" onClick={onView}>Ver oportunidades <ArrowRightIcon size={16}/></button></div><div className="stats-strip">{(result.stats||[]).map((stat:any)=><SourceDiagnosticCard key={stat.fuente} stat={stat}/>)}</div>{(result.errors||[]).length>0&&<div className="source-errors">{result.errors.map((e:any)=><span key={e.fuente}>{e.fuente}: {e.error}</span>)}</div>}</section>
+}
+
+function sourceProgressText(state:any){
+  if(state.status==="pending")return "Pendiente";
+  if(state.status==="running")return "Procesando…";
+  if(state.estado==="ok")return `${state.cantidad||0} resultados · ${state.segundos||0}s`;
+  if(state.estado==="filtered")return `Fichas encontradas, sin match válido · ${state.segundos||0}s`;
+  if(state.estado==="no_links")return `No se detectaron enlaces de vacantes · ${state.segundos||0}s`;
+  if(state.estado==="extract_error")return `Enlaces encontrados, error al leer fichas · ${state.segundos||0}s`;
+  if(state.estado==="blocked")return `Bloqueo / anti-bot detectado · ${state.segundos||0}s`;
+  if(state.estado==="query_error")return `Falló la consulta al portal · ${state.segundos||0}s`;
+  if(state.estado==="empty")return `Sin coincidencias relevantes · ${state.segundos||0}s`;
+  return state.status==="failed"?"Error de fuente":state.diagnostico||"Finalizada";
+}
+
+function SourceDiagnosticCard({stat}:{stat:any}){
+  const bad=["error","blocked","query_error","extract_error","no_links"].includes(stat.estado);
+  const warn=["filtered","empty"].includes(stat.estado);
+  const title=stat.cantidad>0?`${stat.cantidad} resultados`:stat.estado==="filtered"?"Sin match válido":stat.estado==="no_links"?"Sin enlaces detectados":stat.estado==="extract_error"?"Falló la extracción":stat.estado==="blocked"?"Bloqueo anti-bot":stat.estado==="query_error"?"Falló la consulta":stat.estado==="empty"?"Sin coincidencias relevantes":"Error de fuente";
+  return <div className={`source-stat ${stat.estado||""} ${bad?"diagnostic-error":warn?"diagnostic-warn":"diagnostic-ok"}`}>
+    <div className="source-stat-head"><b>{stat.fuente}</b><span className="source-health-dot"/></div>
+    <span>{title} · {stat.segundos||0}s</span>
+    {stat.cantidad===0&&stat.diagnostico&&<small className="source-diagnostic-copy">{stat.diagnostico}</small>}
+    {stat.cantidad===0&&(stat.links_found>0||stat.offers_extracted>0||stat.detail_errors>0)&&<small className="source-diagnostic-metrics">{stat.links_found||0} enlaces · {stat.offers_extracted||0} fichas · {stat.filtered_count||0} filtradas{stat.detail_errors?` · ${stat.detail_errors} errores de ficha`:""}</small>}
+  </div>
 }
 
 function JobsPage({ token }: { token:string }) {
@@ -390,9 +415,97 @@ function Letter({job,token}:{job:Job;token:string}){
 }
 
 function ApplicationsPage({token}:{token:string}){
-  const [jobs,setJobs]=useState<Job[]>([]); const [state,setState]=useState(""); const [loading,setLoading]=useState(true);
-  useEffect(()=>{api<{items:Job[]}>(`/jobs?min_score=0&include_hidden=true${state?`&state=${encodeURIComponent(state)}`:""}`,token).then(r=>setJobs(r.items.filter(j=>j.estado&&j.estado!=="Sin gestionar"))).finally(()=>setLoading(false))},[token,state]);
-  return <><PageHeader eyebrow="SEGUIMIENTO" title="Tus procesos, en orden." text="Conserva contexto de cada postulación y vuelve rápidamente a la publicación original."/><div className="filters one"><label>Estado<select value={state} onChange={e=>setState(e.target.value)}><option value="">Todos</option>{["Guardada","Postulada","Entrevista","Rechazada","Oferta recibida"].map(s=><option key={s}>{s}</option>)}</select></label></div>{loading?<SectionLoader/>:<div className="application-grid">{jobs.map(j=><article className="application-card" key={j.id}><div><Badge text={j.estado||""} tone="blue"/><h3>{j.titulo}</h3><p>{j.empresa||"Empresa no informada"}</p></div><p className="app-notes">{j.notas||"Sin notas todavía."}</p><div className="app-foot"><span>{j.fuente} · {j.puntaje} pts</span>{j.link&&<a href={j.link} target="_blank" rel="noopener noreferrer">Ver oferta <ExternalIcon size={14}/></a>}</div></article>)}{jobs.length===0&&<EmptyMini text="Aún no tienes procesos gestionados."/>}</div>}</>;
+  const [jobs,setJobs]=useState<Job[]>([]);
+  const [state,setState]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [editing,setEditing]=useState<string|null>(null);
+  const [draftState,setDraftState]=useState("");
+  const [draftNotes,setDraftNotes]=useState("");
+  const [busy,setBusy]=useState<string|null>(null);
+  const [message,setMessage]=useState("");
+
+  const load=async()=>{
+    setLoading(true);
+    try{
+      const r=await api<{items:Job[]}>(`/jobs?min_score=0&include_hidden=true&include_old=true${state?`&state=${encodeURIComponent(state)}`:""}`,token);
+      setJobs(r.items.filter(j=>j.estado&&j.estado!=="Sin gestionar"));
+    }finally{setLoading(false)}
+  };
+
+  useEffect(()=>{load()},[token,state]);
+
+  const beginEdit=(job:Job)=>{
+    setEditing(job.id);
+    setDraftState(job.estado||"Guardada");
+    setDraftNotes(job.notas||"");
+    setMessage("");
+  };
+
+  const saveEdit=async(job:Job)=>{
+    setBusy(job.id);setMessage("");
+    try{
+      await api(`/jobs/${job.id}/application`,token,{method:"PUT",body:JSON.stringify({state:draftState,notes:draftNotes})});
+      setEditing(null);
+      setMessage(`Proceso actualizado: ${job.titulo}`);
+      await load();
+    }catch(e){setMessage(e instanceof Error?e.message:"No se pudo actualizar el proceso.")}
+    finally{setBusy(null)}
+  };
+
+  const removeTracking=async(job:Job)=>{
+    const ok=window.confirm(`¿Quitar "${job.titulo}" del seguimiento?\n\nLa oferta NO se borrará. Volverá a Oportunidades como "Sin gestionar".`);
+    if(!ok)return;
+    setBusy(job.id);setMessage("");
+    try{
+      await api(`/jobs/${job.id}/application`,token,{method:"DELETE"});
+      if(editing===job.id)setEditing(null);
+      setMessage(`Seguimiento eliminado. "${job.titulo}" volvió a Oportunidades.`);
+      await load();
+    }catch(e){setMessage(e instanceof Error?e.message:"No se pudo quitar el seguimiento.")}
+    finally{setBusy(null)}
+  };
+
+  return <>
+    <PageHeader eyebrow="SEGUIMIENTO" title="Tus procesos, en orden." text="Actualiza estados, agrega notas o devuelve una vacante a Oportunidades si la marcaste por error."/>
+    <div className="applications-toolbar">
+      <div className="filters one"><label>Estado<select value={state} onChange={e=>setState(e.target.value)}><option value="">Todos</option>{["Guardada","Postulada","Entrevista","Rechazada","Oferta recibida"].map(s=><option key={s}>{s}</option>)}</select></label></div>
+      <span className="muted">{jobs.length} proceso{jobs.length===1?"":"s"}</span>
+    </div>
+    {message&&<div className="notice subtle applications-message">{message}</div>}
+    {loading?<SectionLoader/>:<div className="application-grid">
+      {jobs.map(job=>{
+        const isEditing=editing===job.id;
+        return <article className={`application-card managed ${isEditing?"editing":""}`} key={job.id}>
+          <div className="application-card-head">
+            <div>
+              <Badge text={job.estado||""} tone="blue"/>
+              <h3>{job.titulo}</h3>
+              <p>{job.empresa||"Empresa no informada"}</p>
+            </div>
+            <div className="application-card-actions">
+              {!isEditing&&<button className="icon-text-btn" onClick={()=>beginEdit(job)} disabled={busy===job.id}>Editar</button>}
+              <button className="icon-text-btn danger" onClick={()=>removeTracking(job)} disabled={busy===job.id}>{busy===job.id?"Procesando…":"Quitar"}</button>
+            </div>
+          </div>
+
+          {isEditing?<div className="application-editor">
+            <label>Estado<select value={draftState} onChange={e=>setDraftState(e.target.value)}>{["Guardada","Postulada","Entrevista","Rechazada","Oferta recibida"].map(s=><option key={s}>{s}</option>)}</select></label>
+            <label>Notas<textarea rows={4} value={draftNotes} onChange={e=>setDraftNotes(e.target.value)} placeholder="Fecha, contacto, entrevista, próximos pasos…"/></label>
+            <div className="button-row">
+              <button className="btn primary" onClick={()=>saveEdit(job)} disabled={busy===job.id}>{busy===job.id?"Guardando…":"Guardar cambios"}</button>
+              <button className="btn ghost" onClick={()=>setEditing(null)} disabled={busy===job.id}>Cancelar</button>
+            </div>
+          </div>:<p className="app-notes">{job.notas||"Sin notas todavía."}</p>}
+
+          <div className="app-foot">
+            <span>{job.fuente} · {job.puntaje} pts</span>
+            {job.link&&<a href={job.link} target="_blank" rel="noopener noreferrer">Ver oferta <ExternalIcon size={14}/></a>}
+          </div>
+        </article>
+      })}
+      {jobs.length===0&&<EmptyMini text="Aún no tienes procesos gestionados."/>}
+    </div>}
+  </>;
 }
 
 function ProfilePage({token}:{token:string}){

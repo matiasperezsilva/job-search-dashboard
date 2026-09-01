@@ -265,6 +265,13 @@ class Repository:
             "notas": notes, "updated_at": now_iso(),
         }, "user_id,job_id")
 
+
+    def delete_application(self, job_id_: str):
+        return self.db.delete("applications", {
+            "user_id": f"eq.{self.ctx.user_id}",
+            "job_id": f"eq.{job_id_}",
+        })
+
     def letter(self, job_id_: str):
         rows = self.db.select("letters", {
             "select": "*", "user_id": f"eq.{self.ctx.user_id}", "job_id": f"eq.{job_id_}", "limit": "1"
