@@ -1,3 +1,15 @@
+## 5.7.11 — Rolvora + recuperación avanzada de fuentes
+- Se integra la identidad visual definitiva aprobada: R ribbon + sparkle + check/arrow y paleta violeta/azul/cyan.
+- El producto adopta la marca **Rolvora** y el descriptor `Career match workspace`.
+- Se agrega isotipo vectorial, logo horizontal y favicon propios.
+- Se actualizan login, sidebar, metadata del navegador, README y nombre del paquete.
+- Trabajando.com usa la ruta pública actual `/trabajo-empleo/chile` y ejecuta la búsqueda desde el formulario visible, con fallback Enter/botón.
+- Laborum intenta `SearchV2` también desde el contexto del navegador para reutilizar cookies/origen del frontend cuando Render recibe 403 por HTTP directo.
+- Laborum mantiene API directa, browser API, HTML y navegador como cadena de fallbacks.
+- BNE prioriza enlaces por el texto/título visible del listado antes de consumir el presupuesto de fichas.
+- BNE abre más candidatos relevantes y usa fallback limitado solo cuando el listado no entrega suficientes títulos compatibles.
+- 72 pruebas automatizadas aprobadas.
+
 ## 5.7.10 — Recuperación de Laborum, Trabajando.com y BNE
 - Laborum consulta primero el endpoint público `/api/avisos/searchV2` de Jobint y evita depender del HTML bloqueado por anti-bot.
 - Laborum incorpora fallback por HTML público y, como última alternativa, Playwright.

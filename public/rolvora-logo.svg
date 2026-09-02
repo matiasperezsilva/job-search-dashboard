@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80" role="img" aria-label="Rolvora">
+<defs>
+  <linearGradient id="rg" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#A78BFA"/><stop offset=".42" stop-color="#7C3AED"/><stop offset="1" stop-color="#3B82F6"/>
+  </linearGradient>
+</defs>
+<g transform="translate(5 8)">
+  <path fill="url(#rg)" d="M12 9h22c11.1 0 18.5 6.3 18.5 15.7 0 7.2-4.2 12.4-11.3 14.5L52 50.1l-8.3 8.1-15.5-16.1H23v13.4L12 46.8V9Zm11 10.1v13.2h10.2c5.3 0 8.1-2.4 8.1-6.7 0-4.2-2.8-6.5-8.1-6.5H23Z"/>
+  <path fill="#F5F3FF" d="m31.9 20.2 1.55 3.82 3.82 1.55-3.82 1.55-1.55 3.82-1.55-3.82-3.82-1.55 3.82-1.55 1.55-3.82Z"/>
+  <path d="m33.5 42.2 10.1 10.3L55 40.8" fill="none" stroke="#A78BFA" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<text x="88" y="47" font-family="Inter,Arial,sans-serif" font-size="42" font-weight="800" letter-spacing="-1.5" fill="#F8FAFC">Rolvora</text>
+<text x="90" y="68" font-family="Inter,Arial,sans-serif" font-size="9.5" font-weight="700" letter-spacing="2.15" fill="#A78BFA">FIND THE ROLE THAT FITS YOUR PATH</text>
+</svg>

@@ -41,12 +41,45 @@ def _blocked(body: str) -> bool:
 
 
 def _links_busqueda(page, termino: str):
-    url = f"{BASE_URL}/trabajo-{_slug(termino)}"
-    page.goto(url, wait_until="domcontentloaded", timeout=15000)
+    # La ruta estable actual es /trabajo-empleo/chile. La búsqueda por keyword
+    # se ejecuta desde el formulario del frontend; /trabajo-<slug> dejó de ser
+    # confiable para obtener listados desde Render.
+    page.goto(f"{BASE_URL}/trabajo-empleo/chile", wait_until="domcontentloaded", timeout=15000)
+    page.wait_for_timeout(400)
+
+    search = page.locator(
+        'input[placeholder*="Qué trabajo buscas" i], '
+        'input[placeholder*="trabajo buscas" i], '
+        'input[type="search"]'
+    ).first
+    if search.count() == 0:
+        raise RuntimeError("Trabajando.com cambió el campo principal de búsqueda")
+
+    search.fill(termino)
+    submitted = False
+    try:
+        search.press("Enter", timeout=2000)
+        submitted = True
+    except Exception:
+        pass
+
     try:
         page.wait_for_selector('a[href*="/trabajo/"]', timeout=6000)
     except Exception:
-        pass
+        # Algunas versiones del frontend no envían con Enter.
+        buttons = page.locator('button:has-text("Buscar empleo"), button:has-text("Buscar")')
+        for i in range(min(buttons.count(), 8)):
+            try:
+                if buttons.nth(i).is_visible():
+                    buttons.nth(i).click(timeout=2500)
+                    submitted = True
+                    break
+            except Exception:
+                continue
+        try:
+            page.wait_for_selector('a[href*="/trabajo/"]', timeout=6500)
+        except Exception:
+            pass
 
     body = page.locator("body").inner_text(timeout=3000) if page.locator("body").count() else ""
     if _blocked(body):
@@ -54,7 +87,7 @@ def _links_busqueda(page, termino: str):
 
     links, seen = [], set()
     anchors = page.locator('a[href*="/trabajo/"]')
-    for idx in range(min(anchors.count(), 250)):
+    for idx in range(min(anchors.count(), 300)):
         a = anchors.nth(idx)
         href = (a.get_attribute("href") or "").strip()
         link = urljoin(BASE_URL, href).split("?")[0].split("#")[0]
@@ -65,12 +98,29 @@ def _links_busqueda(page, termino: str):
             continue
         seen.add(link)
         try:
-            hint = a.inner_text(timeout=1000).strip()
+            hint = a.inner_text(timeout=800).strip()
         except Exception:
             hint = ""
         links.append((link, hint))
-    return links
 
+    # Si el formulario carga resultados vía navegación SPA, a veces los anchors
+    # aparecen después de un breve tick aunque wait_for_selector haya expirado.
+    if not links and submitted:
+        page.wait_for_timeout(1800)
+        anchors = page.locator('a[href*="/trabajo/"]')
+        for idx in range(min(anchors.count(), 300)):
+            a = anchors.nth(idx)
+            href = (a.get_attribute("href") or "").strip()
+            link = urljoin(BASE_URL, href).split("?")[0].split("#")[0]
+            path = urlsplit(link).path
+            if re.match(r"^/trabajo/\d+(?:-[^/?#]+)?/?$", path, re.I) and link not in seen:
+                seen.add(link)
+                try:
+                    hint = a.inner_text(timeout=800).strip()
+                except Exception:
+                    hint = ""
+                links.append((link, hint))
+    return links
 
 def _empresa_fallback(doc) -> str:
     text = doc.get_text("\n", strip=True)

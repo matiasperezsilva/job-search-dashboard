@@ -99,14 +99,14 @@ function AuthView({ supabase }: { supabase: SupabaseClient }) {
   return (
     <div className="auth-layout">
       <section className="auth-brand-panel">
-        <div className="brand-mark large">JS</div>
-        <div className="auth-brand-copy"><span className="eyebrow">JOB SEARCH DASHBOARD</span><h1>Encuentra oportunidades que sí calzan contigo.</h1><p>Tu CV se convierte en un perfil de búsqueda inteligente. Encuentra vacantes, prioriza el calce y gestiona cada postulación desde un solo lugar.</p></div>
+        <div className="brand-mark large"><img src="/rolvora-mark.svg" alt="Rolvora"/></div>
+        <div className="auth-brand-copy"><span className="eyebrow">ROLVORA</span><h1>Encuentra oportunidades que sí calzan contigo.</h1><p>Tu CV se convierte en un perfil de búsqueda inteligente. Encuentra vacantes, prioriza el calce y gestiona cada postulación desde un solo lugar.</p></div>
         <div className="feature-row"><span>01</span><p><b>Perfil automático</b><br/>Extraemos áreas, competencias y roles desde tu currículum, sin limitarlo a una industria.</p></div>
         <div className="feature-row"><span>02</span><p><b>Menos ruido</b><br/>Filtramos páginas SEO, vacantes fuera del perfil y resultados irrelevantes.</p></div>
         <div className="feature-row"><span>03</span><p><b>Seguimiento completo</b><br/>Vacantes, postulaciones y cartas en un mismo flujo.</p></div>
       </section>
       <section className="auth-form-panel"><div className="auth-form-wrap">
-        <div className="mobile-logo"><div className="brand-mark">JS</div><b>Job Search</b></div>
+        <div className="mobile-logo"><div className="brand-mark"><img src="/rolvora-mark.svg" alt=""/></div><b>Rolvora</b></div>
         <span className="eyebrow dark">{mode === "reset" ? "RECUPERAR ACCESO" : "BIENVENIDO"}</span>
         <h2>{mode === "login" ? "Inicia sesión" : mode === "signup" ? "Crea tu cuenta" : "Recupera tu contraseña"}</h2>
         <p className="muted">{mode === "login" ? "Continúa con tu búsqueda laboral." : mode === "signup" ? "Empieza a construir tu espacio de oportunidades." : "Te enviaremos un enlace seguro para definir una nueva contraseña."}</p>
@@ -128,7 +128,7 @@ function AuthView({ supabase }: { supabase: SupabaseClient }) {
 function UpdatePasswordView({supabase,onDone}:{supabase:SupabaseClient;onDone:()=>Promise<void>}){
   const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState(""); const [loading,setLoading]=useState(false); const [message,setMessage]=useState("");
   const save=async(e:FormEvent)=>{e.preventDefault();setMessage(""); if(password!==confirm){setMessage("Las contraseñas no coinciden.");return;} if(password.length<8){setMessage("Usa al menos 8 caracteres.");return;} setLoading(true); try{const {error}=await supabase.auth.updateUser({password}); if(error) throw error; setMessage("Contraseña actualizada correctamente. Volverás al inicio de sesión."); setTimeout(()=>{void onDone()},900);}catch(err){setMessage(authErrorMessage(err instanceof Error?err.message:"No se pudo cambiar la contraseña."));}finally{setLoading(false)}};
-  return <div className="center-screen recovery-screen"><div className="auth-card recovery-card"><div className="brand-mark">JS</div><span className="eyebrow dark">SEGURIDAD</span><h2>Crea una nueva contraseña</h2><p className="muted">Este enlace de recuperación ya validó tu identidad. Define una contraseña única para Job Search.</p><form className="form-stack" onSubmit={save}><label>Nueva contraseña<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required/></label><label>Repetir contraseña<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} minLength={8} required/></label><button className="btn primary xl" disabled={loading}>{loading?"Guardando…":"Actualizar contraseña"}</button></form>{message&&<div className="notice">{message}</div>}</div></div>
+  return <div className="center-screen recovery-screen"><div className="auth-card recovery-card"><div className="brand-mark"><img src="/rolvora-mark.svg" alt="Rolvora"/></div><span className="eyebrow dark">SEGURIDAD</span><h2>Crea una nueva contraseña</h2><p className="muted">Este enlace de recuperación ya validó tu identidad. Define una contraseña única para Job Search.</p><form className="form-stack" onSubmit={save}><label>Nueva contraseña<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required/></label><label>Repetir contraseña<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} minLength={8} required/></label><button className="btn primary xl" disabled={loading}>{loading?"Guardando…":"Actualizar contraseña"}</button></form>{message&&<div className="notice">{message}</div>}</div></div>
 }
 
 function Sidebar({ view, setView, email, onLogout }: { view: View; setView: (v: View)=>void; email:string; onLogout:()=>void }) {
@@ -141,14 +141,14 @@ function Sidebar({ view, setView, email, onLogout }: { view: View; setView: (v: 
     {id:"account",label:"Cuenta y seguridad",icon:<SettingsIcon/>,group:"CUENTA"},
   ];
   return <aside className="sidebar">
-    <div className="sidebar-brand"><div className="brand-mark">JS</div><div><b>Job Search</b><span>Career workspace</span></div></div>
+    <div className="sidebar-brand"><div className="brand-mark"><img src="/rolvora-mark.svg" alt=""/></div><div><b>Rolvora</b><span>Career match workspace</span></div></div>
     <nav>{items.map((item,i)=><div key={item.id}>{item.group && <div className="nav-group">{item.group}</div>}<button className={`nav-item ${view===item.id?"active":""}`} onClick={()=>setView(item.id)}>{item.icon}<span>{item.label}</span></button></div>)}</nav>
     <div className="sidebar-user"><div className="avatar">{email.slice(0,2).toUpperCase()}</div><div className="user-copy"><b>{email.split("@")[0]}</b><span>{email}</span></div><button className="icon-btn" title="Cerrar sesión" onClick={onLogout}><LogoutIcon/></button></div>
   </aside>;
 }
 
 function Topbar({ email }: { email:string }) {
-  return <header className="topbar"><div><span className="topbar-title">Workspace personal</span><span className="topbar-sub">Prioriza mejor. Postula con contexto.</span></div><div className="topbar-user"><span className="status-dot"/> Sesión activa <b>{email}</b></div></header>;
+  return <header className="topbar"><div><span className="topbar-title">Rolvora workspace</span><span className="topbar-sub">Find the role that fits your path.</span></div><div className="topbar-user"><span className="status-dot"/> Sesión activa <b>{email}</b></div></header>;
 }
 
 function PageHeader({ eyebrow, title, text, action }: { eyebrow:string; title:string; text:string; action?:ReactNode }) {

@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from .common import nueva_pagina
+from .common import nueva_pagina, titulo_parece_relevante
 
 USES_BROWSER = True
 NOMBRE = "BNE"
@@ -32,16 +32,23 @@ def _blocked(text: str) -> bool:
 
 
 def _offer_links(page):
-    raw = page.locator('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]').evaluate_all(
-        "els => els.map(e => e.href)"
-    )
-    out = []
-    for href in raw:
+    anchors = page.locator('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]')
+    out, seen = [], set()
+    for i in range(min(anchors.count(), 500)):
+        a = anchors.nth(i)
+        try:
+            href = a.get_attribute("href") or ""
+            text = a.inner_text(timeout=700).strip()
+        except Exception:
+            continue
         link = urljoin(BASE_URL, href).split("?")[0].split("#")[0]
-        if re.search(r"/(?:oferta|ofertaEmpleoExterno)/[^/?#]+", link):
-            out.append(link)
-    return list(dict.fromkeys(out))
-
+        if not re.search(r"/(?:oferta|ofertaEmpleoExterno)/[^/?#]+", link):
+            continue
+        if link in seen:
+            continue
+        seen.add(link)
+        out.append((link, text))
+    return out
 
 def _visible_search_input(page):
     selectors = [
@@ -178,36 +185,53 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     }
     page = nueva_pagina(browser)
     terms = list(dict.fromkeys(t for t in (terminos or []) if t))[:3 if modo == "rapida" else 6]
-    links = []
+    cards = []
 
     for idx, term in enumerate(terms, 1):
         if progreso:
             progreso(f"BNE · {idx}/{len(terms)} · {term}")
         try:
-            links.extend(_buscar_links_por_termino(page, term))
+            cards.extend(_buscar_links_por_termino(page, term))
         except Exception:
             _LAST_DIAGNOSTIC["query_errors"] += 1
 
-    links = list(dict.fromkeys(links))
+    # Deduplica por URL conservando el texto más descriptivo del listado.
+    by_link = {}
+    for link, hint in cards:
+        if link not in by_link or len(hint or "") > len(by_link[link] or ""):
+            by_link[link] = hint or ""
+    cards = list(by_link.items())
 
-    # Si el formulario cambió pero el listado público sí carga, rescatar enlaces visibles
-    # de la página general en vez de reportar una falsa ausencia de vacantes.
-    if not links and not _LAST_DIAGNOSTIC["blocked"]:
+    # Si el formulario cambió pero el listado público sí carga, rescatar enlaces visibles.
+    if not cards and not _LAST_DIAGNOSTIC["blocked"]:
         try:
             page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
             page.wait_for_timeout(700)
-            links = _offer_links(page)
-            if links:
+            cards = _offer_links(page)
+            if cards:
                 _LAST_DIAGNOSTIC["transport"] = "public-list-fallback"
         except Exception:
             _LAST_DIAGNOSTIC["query_errors"] += 1
 
-    _LAST_DIAGNOSTIC["links_found"] = len(links)
-    limit = 8 if modo == "rapida" else 18
+    _LAST_DIAGNOSTIC["links_found"] = len(cards)
+
+    # La ejecución anterior encontró 20 links pero gastó el presupuesto en 8 fichas
+    # irrelevantes. Ahora priorizamos el texto visible del listado antes de abrir fichas.
+    cards.sort(key=lambda item: 0 if titulo_parece_relevante(item[1], terms) else 1)
+    relevant_cards = [c for c in cards if titulo_parece_relevante(c[1], terms)]
+    fallback_cards = [c for c in cards if c not in relevant_cards]
+
+    # En rápida: hasta 10 títulos relevantes; si hay pocos, completa con 4 fallback.
+    selected = relevant_cards[:10 if modo == "rapida" else 20]
+    if len(selected) < 4:
+        selected += fallback_cards[:4-len(selected)]
+    elif modo != "rapida":
+        selected += fallback_cards[:max(0, 24-len(selected))]
+
     offers = []
-    for idx, link in enumerate(links[:limit], 1):
+    for idx, (link, hint) in enumerate(selected, 1):
         if progreso:
-            progreso(f"BNE · leyendo {idx}/{min(len(links), limit)}")
+            progreso(f"BNE · leyendo {idx}/{len(selected)} · {hint[:45] or 'vacante'}")
         try:
             offers.append(_extraer_oferta(page, link))
             _LAST_DIAGNOSTIC["offers_extracted"] += 1

@@ -1,4 +1,6 @@
-# Job Search Dashboard
+# Rolvora
+
+**Career match workspace** — analiza tu CV, encuentra oportunidades multiprofesionales, explica el calce y organiza cada postulación.
 
 Aplicación web para buscar, priorizar y gestionar oportunidades laborales basándose en el currículum del usuario.
 

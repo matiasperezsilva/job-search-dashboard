@@ -182,6 +182,61 @@ def _api_search(term: str):
     return []
 
 
+def _browser_api_search(page, term: str):
+    """Consulta SearchV2 desde el contexto del navegador para reutilizar cookies/origen.
+
+    Render puede recibir 403 vía requests mientras el endpoint sigue respondiendo al
+    frontend real. Este fallback no resuelve CAPTCHA; solo usa el mismo contexto
+    público que la página.
+    """
+    page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=15000)
+    page.wait_for_timeout(700)
+    params = {
+        "siteId": SITE_ID,
+        "portal": "bumeran",
+        "page": 0,
+        "pageSize": 50,
+        "query": term,
+    }
+    from urllib.parse import urlencode
+    url = API_URL + "?" + urlencode(params)
+    result = page.evaluate(
+        """async (url) => {
+          try {
+            const r = await fetch(url, {
+              method: 'GET',
+              credentials: 'include',
+              headers: {'accept':'application/json,text/plain,*/*'}
+            });
+            const text = await r.text();
+            return {status:r.status, contentType:r.headers.get('content-type')||'', text};
+          } catch (e) {
+            return {status:0, contentType:'', text:String(e)};
+          }
+        }""",
+        url,
+    )
+    status = int(result.get("status") or 0)
+    text = result.get("text") or ""
+    if status in (403, 429) or _blocked_text(text):
+        _LAST_DIAGNOSTIC["blocked"] = True
+        return []
+    if status < 200 or status >= 300:
+        raise RuntimeError(f"SearchV2 browser HTTP {status}")
+    import json
+    data = json.loads(text)
+    items, seen = [], set()
+    for obj in _walk(data):
+        if not _looks_like_job(obj):
+            continue
+        job = _api_job(obj)
+        if not job or not job["link"] or job["link"] in seen:
+            continue
+        seen.add(job["link"])
+        items.append(job)
+    return items
+
+
 def _html_links(term: str):
     url = f"{BASE_URL}/empleos-busqueda-{_slug(term)}.html"
     r = SESSION.get(url, timeout=12, allow_redirects=True)
@@ -272,7 +327,31 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
         _LAST_DIAGNOSTIC["offers_extracted"] = len(offers)
         return offers[:12 if modo == "rapida" else 25]
 
-    # 2) HTML público directo.
+    # 2) SearchV2 desde contexto de navegador. Se intenta incluso si requests recibió
+    # 403, porque el frontend público puede tener cookies/origen aceptados.
+    if browser is not None:
+        _LAST_DIAGNOSTIC["transport"] = "browser-api"
+        page = nueva_pagina(browser)
+        try:
+            for idx, term in enumerate(terms[:2 if modo == "rapida" else 4], 1):
+                if progreso:
+                    progreso(f"Laborum · API navegador {idx} · {term}")
+                try:
+                    for job in _browser_api_search(page, term):
+                        if job["link"] not in seen:
+                            seen.add(job["link"])
+                            offers.append(job)
+                except Exception:
+                    _LAST_DIAGNOSTIC["query_errors"] += 1
+        finally:
+            page.close()
+        if offers:
+            _LAST_DIAGNOSTIC["links_found"] = len(offers)
+            _LAST_DIAGNOSTIC["offers_extracted"] = len(offers)
+            _LAST_DIAGNOSTIC["blocked"] = False
+            return offers[:12 if modo == "rapida" else 25]
+
+    # 3) HTML público directo.
     _LAST_DIAGNOSTIC["transport"] = "html-fallback"
     links = []
     for term in terms[:2 if modo == "rapida" else 4]:
@@ -282,8 +361,8 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
             _LAST_DIAGNOSTIC["query_errors"] += 1
     links = list(dict.fromkeys(links))
 
-    # 3) Navegador solo si HTTP no consiguió enlaces y no estamos claramente bloqueados.
-    if not links and browser is not None and not _LAST_DIAGNOSTIC["blocked"]:
+    # 4) Navegador final. Un 403 de requests no impide probar el contexto del browser.
+    if not links and browser is not None:
         _LAST_DIAGNOSTIC["transport"] = "playwright-fallback"
         page = nueva_pagina(browser)
         for term in terms[:2]:
