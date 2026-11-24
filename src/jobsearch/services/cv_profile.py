@@ -3,6 +3,7 @@ from io import BytesIO
 import json, re
 from pathlib import Path
 from datetime import date
+from jobsearch.services.experience import _NOT_WORK, _TRAINING, _WORK, evidencias, requisitos
 
 # Taxonomía deliberadamente transversal. No pretende adivinar una profesión por una
 # sola palabra: combina títulos/funciones + competencias y deja los roles editables.
@@ -130,17 +131,6 @@ def _nivel(texto: str) -> str:
 
 
 
-def _anos_experiencia_explicitos(texto: str):
-    """Extrae una cifra solo cuando el CV declara explícitamente años de experiencia.
-    Evita sumar rangos de educación/proyectos y producir una precisión falsa."""
-    vals=[]
-    for m in re.finditer(r"(?i)(?:más de|mas de|sobre|aprox(?:imadamente)?\.?|al menos)?\s*(\d{1,2})\s*\+?\s*años?\s+(?:de\s+)?experiencia", texto):
-        n=int(m.group(1))
-        if 0 <= n <= 50: vals.append(n)
-    return max(vals) if vals else None
-
-
-
 _MONTHS_ES = {
     "ene": 1, "enero": 1, "feb": 2, "febrero": 2, "mar": 3, "marzo": 3,
     "abr": 4, "abril": 4, "may": 5, "mayo": 5, "jun": 6, "junio": 6,
@@ -148,12 +138,6 @@ _MONTHS_ES = {
     "septiembre": 9, "oct": 10, "octubre": 10, "nov": 11, "noviembre": 11,
     "dic": 12, "diciembre": 12,
 }
-_ACADEMIC_EXPERIENCE_MARKERS = (
-    "proyecto de título", "proyecto de titulo", "proyecto académico", "proyecto academico",
-    "tesis", "capstone", "proyecto universitario",
-)
-
-
 def _month_index(year: int, month: int) -> int:
     return year * 12 + (month - 1)
 
@@ -179,51 +163,69 @@ def _experiencia_por_fechas(texto: str, today=None):
     superpuestos. Devuelve None cuando no hay rangos laborales interpretables.
     """
     today = today or date.today()
-    raw = texto or ""
-    # Trabajar con el bloque EXPERIENCIA cuando existe para no confundir educación.
-    m = re.search(r"(?is)\bEXPERIENCIA\b(.*?)(?:\bEDUCACI[ÓO]N\b|\bFORMACI[ÓO]N\b|\bCERTIFICACIONES\b|$)", raw)
-    block = m.group(1) if m else raw
-
-    month_names = "|".join(sorted((re.escape(k) for k in _MONTHS_ES), key=len, reverse=True))
-    pat = re.compile(
-        rf"(?i)(?P<prefix>[^\n]{{0,140}}?)\b(?P<m1>{month_names})\.?\s+(?P<y1>20\d{{2}})"
-        rf"\s*(?:-|–|—|a|hasta)\s*"
-        rf"(?:(?P<m2>{month_names})\.?\s+(?P<y2>20\d{{2}})|(?P<current>actualidad|actual|presente))"
+    lines = (texto or "").splitlines()
+    has_work_heading = any(_WORK.fullmatch(line) for line in lines)
+    work = not has_work_heading
+    names = "|".join(sorted(_MONTHS_ES, key=len, reverse=True))
+    pattern = re.compile(
+        rf"(?<!\d)(?P<m1>{names}|0?[1-9]|1[0-2])\.?[ /.-]+(?P<y1>(?:19|20)\d{{2}})"
+        rf"\s*(?:[-–—]|a|hasta|to)\s*"
+        rf"(?:(?P<m2>{names}|0?[1-9]|1[0-2])\.?[ /.-]+(?P<y2>(?:19|20)\d{{2}})|(?P<current>actualidad|actual|presente|present|actualmente))\b", re.I,
     )
-
-    intervals = []
-    ignored = []
-    entries = []
-    for match in pat.finditer(block):
-        prefix = re.sub(r"\s+", " ", match.group("prefix") or "").strip(" -–—|")
-        low_prefix = prefix.lower()
-        start_month = _MONTHS_ES[match.group("m1").lower()]
-        start_year = int(match.group("y1"))
-        if match.group("current"):
-            end_year, end_month = today.year, today.month
-        else:
-            end_month = _MONTHS_ES[match.group("m2").lower()]
-            end_year = int(match.group("y2"))
-
-        start = _month_index(start_year, start_month)
-        # Fin exclusivo: incluye el mes final declarado.
-        end = _month_index(end_year, end_month) + 1
-        if end <= start or end - start > 600:
+    year_only = re.compile(r"(?<!\d)(?P<y1>(?:19|20)\d{2})\s*[-–—]\s*(?P<y2>(?:19|20)\d{2}|actualidad|actual|presente|present)\b", re.I)
+    intervals, ignored, entries = [], [], []
+    previous = ""
+    active = None
+    for line in lines:
+        if _WORK.fullmatch(line):
+            work, previous, active = True, "", None
             continue
-
-        is_academic = any(marker in low_prefix for marker in _ACADEMIC_EXPERIENCE_MARKERS)
+        if _NOT_WORK.fullmatch(line):
+            work, previous, active = False, "", None
+            continue
+        if not work or not line.strip():
+            continue
+        match = pattern.search(line)
+        annual = year_only.search(line) if has_work_heading and not match else None
+        if not match and not annual:
+            if active is not None and not _TRAINING.search(line):
+                active["actividad"] += " " + line.strip()
+            previous = line.strip()
+            continue
+        match = match or annual
+        prefix = line[:match.start()].strip(" -–—|:•") or line[match.end():].strip(" -–—|:•") or previous
+        if annual:
+            # Only the complete intervening years are guaranteed by year-only dates.
+            start_year, start_month = int(match["y1"]) + 1, 1
+            if match["y2"].isdigit():
+                end_year, end_month = int(match["y2"]) - 1, 12
+            else:
+                end_year, end_month = today.year, today.month
+        else:
+            start_year, start_month = int(match["y1"]), _MONTHS_ES.get(match["m1"].lower()) or int(match["m1"])
+            if match["current"]:
+                end_year, end_month = today.year, today.month
+            else:
+                end_year, end_month = int(match["y2"]), _MONTHS_ES.get(match["m2"].lower()) or int(match["m2"])
+        if (end_year, end_month) > (today.year, today.month):
+            end_year, end_month = today.year, today.month
+        start = _month_index(start_year, start_month)
+        end = _month_index(end_year, end_month) + 1
+        active = None
+        if end <= start or end - start > 600 or not prefix:
+            continue
+        academic = bool(_TRAINING.search(prefix))
         info = {
-            "etiqueta": prefix[-100:] if prefix else "",
-            "inicio": f"{start_year:04d}-{start_month:02d}",
-            "fin": f"{end_year:04d}-{end_month:02d}",
-            "meses": end - start,
-            "academico": is_academic,
+            "etiqueta": prefix[:150], "inicio": f"{start_year:04d}-{start_month:02d}",
+            "fin": f"{end_year:04d}-{end_month:02d}", "meses": end - start,
+            "academico": academic, "actividad": "",
         }
         entries.append(info)
-        if is_academic:
+        if academic:
             ignored.append(info)
         else:
             intervals.append((start, end))
+            active = info
 
     if not intervals:
         return None
@@ -238,41 +240,37 @@ def _experiencia_por_fechas(texto: str, today=None):
     }
 
 
-def _experiencia_profesional(texto: str):
-    """Prioriza fechas laborales; usa declaración explícita de años solo como fallback."""
-    by_dates = _experiencia_por_fechas(texto)
-    if by_dates:
-        return by_dates
-    explicit = _anos_experiencia_explicitos(texto)
-    if explicit is None:
-        return None
+def extraer_experiencia(texto: str) -> dict:
+    dated = _experiencia_por_fechas(texto) or {}
+    periodos = dated.get("periodos", [])
+    evidence = evidencias(texto, periodos, AREA_RULES)
+    declared = max((item["minimo_meses"] for item in evidence["declarada"]), default=None)
+    months = dated.get("meses", declared)
     return {
-        "meses": int(round(explicit * 12)),
-        "anos": float(explicit),
-        "fuente": "declaracion_explicita",
-        "periodos": [],
-        "periodos_academicos_excluidos": [],
+        "meses_experiencia": months,
+        "anos_experiencia": round(months / 12, 2) if months is not None else None,
+        "experiencia_fuente": dated.get("fuente") or ("declaracion_explicita" if declared is not None else None),
+        "periodos_experiencia": [{k: v for k, v in item.items() if k != "actividad"} for item in periodos],
+        "experiencia_acreditada": evidence,
     }
 
 
 def _requisito_experiencia(oferta_texto: str):
-    """Devuelve el mínimo de años solicitado por una oferta cuando es explícito."""
-    patterns=[
-        r"(?i)(?:mínimo|minimo|al menos)\s+(\d{1,2})\s*años?\s+(?:de\s+)?experiencia",
-        r"(?i)(\d{1,2})\s*(?:a|[-–])\s*\d{1,2}\s*años?\s+(?:de\s+)?experiencia",
-        r"(?i)(\d{1,2})\s*\+?\s*años?\s+(?:de\s+)?experiencia",
-        r"(?i)experiencia\s+(?:mínima|minima)?\s*(?:de)?\s*(\d{1,2})\s*años?",
-    ]
-    vals=[]
-    for pat in patterns:
-        for m in re.finditer(pat, oferta_texto or ""):
-            n=int(m.group(1))
-            if 0 < n <= 30: vals.append(n)
-    return min(vals) if vals else None
+    minima = [item["minimo_meses"] for item in requisitos(oferta_texto) if item["obligatorio"]]
+    return max(minima) / 12 if minima else None
+
+
+def perfil_para_matching(row):
+    profile = dict(row.get("profile_data") or {})
+    summary = dict(profile.get("resumen") or {})
+    if row.get("cv_text"):
+        summary.update(extraer_experiencia(row["cv_text"]))
+    profile["resumen"] = summary
+    return profile
 
 
 def construir_perfil_desde_texto(texto: str) -> dict:
-    experiencia = _experiencia_profesional(texto)
+    experiencia = extraer_experiencia(texto)
     limpio = re.sub(r"\s+", " ", texto).strip()
     # El encabezado profesional (antes de PERFIL PROFESIONAL) representa mejor
     # el rol declarado que tecnologías mencionadas en proyectos académicos.
@@ -335,10 +333,7 @@ def construir_perfil_desde_texto(texto: str) -> dict:
             "roles_objetivo": roles,
             "terminos_busqueda": roles,  # compatibilidad con el resto de la app
             "seniority_estimado": _nivel(limpio),
-            "anos_experiencia": experiencia.get("anos") if experiencia else None,
-            "meses_experiencia": experiencia.get("meses") if experiencia else None,
-            "experiencia_fuente": experiencia.get("fuente") if experiencia else None,
-            "periodos_experiencia": experiencia.get("periodos") if experiencia else [],
+            **experiencia,
             "caracteres_cv": len(limpio),
         },
         "areas": areas,

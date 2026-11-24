@@ -1,5 +1,6 @@
 from jobsearch.scrapers.common import oferta_es_valida, contexto_calidad_no_software
-from jobsearch.services.cv_profile import _requisito_experiencia
+from jobsearch.services.cv_profile import AREA_RULES
+from jobsearch.services.experience import evaluar_requisitos
 import re
 
 
@@ -190,6 +191,25 @@ def _empty_breakdown(verdict, detail):
     }
 
 
+def _duracion(months):
+    if months is None:
+        return "sin duración acreditada"
+    years, rest = divmod(months, 12)
+    if years and not rest:
+        return f"{years} año" if years == 1 else f"{years} años"
+    return f"{months} mes" if months == 1 else f"{months} meses"
+
+
+def _detalle_experiencia(requirement):
+    scope = ", ".join(requirement["categorias"]) or requirement["ambito"] or "experiencia profesional total"
+    aspect = {"cargo": "cargo ", "area": "área ", "tecnologia": "tecnología ", "total": ""}[requirement["tipo"]]
+    label = "Obligatorio" if requirement["obligatorio"] else "Deseable"
+    minimum = _duracion(requirement["minimo_meses"])
+    maximum = requirement["maximo_meses"]
+    range_text = f" (rango publicado hasta {_duracion(maximum)})" if maximum else ""
+    return f"{label} en {aspect}{scope}: mínimo {minimum}{range_text}. CV: {_duracion(requirement['acreditado_meses'])}."
+
+
 def evaluar_oferta(oferta, perfil):
     titulo = oferta.get("titulo", "") or ""
     descripcion = oferta.get("descripcion", "") or ""
@@ -224,8 +244,22 @@ def evaluar_oferta(oferta, perfil):
             "match_breakdown": _empty_breakdown("Área no compatible", razon),
         }
 
-    candidatos = []
     resumen = perfil.get("resumen") or {}
+    requirements = evaluar_requisitos(descripcion, titulo, resumen, AREA_RULES)
+    unmet = [req for req in requirements if not req["cumple"]]
+    mandatory = [req for req in unmet if req["obligatorio"]]
+    if mandatory:
+        razon = "Experiencia obligatoria insuficiente. " + " ".join(map(_detalle_experiencia, mandatory))
+        breakdown = _empty_breakdown("Fuera de experiencia", razon)
+        breakdown["experience_blocked"] = True
+        breakdown["experience_requirements"] = requirements
+        breakdown["components"][3] = _component("Experiencia", 0, razon, None, "negative")
+        return {
+            "puntaje": 0, "area": "Fuera de experiencia", "razon": razon, "coincidencias": [],
+            "match_breakdown": breakdown,
+        }
+
+    candidatos = []
     skills_detectadas = resumen.get("skills_detectadas")
     areas = dict(perfil.get("areas") or {})
     if resumen.get("cargos_configurados"):
@@ -342,32 +376,10 @@ def evaluar_oferta(oferta, perfil):
         req_details.append("Sin penalizaciones adicionales detectadas.")
     score += requirements_delta
 
-    experience_delta = 0
-    experience_detail = "La oferta no declara un mínimo de años comparable."
-    req_years = _requisito_experiencia(f"{titulo} {descripcion}")
-    candidate_years = (perfil.get("resumen") or {}).get("anos_experiencia")
-    if req_years and candidate_years is not None:
-        try:
-            candidate_years = float(candidate_years)
-            gap = float(req_years) - candidate_years
-            if gap >= 3:
-                experience_delta = -24
-                penal.append(f"solicita {req_years} años y el perfil acredita aprox. {candidate_years:g}")
-            elif gap >= 1:
-                experience_delta = -12
-                penal.append(f"solicita {req_years} años y el perfil acredita aprox. {candidate_years:g}")
-            elif gap <= 0:
-                experience_delta = 4
-            experience_detail = (
-                f"La oferta solicita {req_years} años; el perfil acredita aprox. {candidate_years:g}."
-            )
-            score += experience_delta
-        except (TypeError, ValueError):
-            experience_detail = "No fue posible comparar los años con suficiente seguridad."
-    elif req_years and candidate_years is None:
-        experience_detail = (
-            f"La oferta solicita {req_years} años, pero el CV no permite estimar años con suficiente seguridad."
-        )
+    experience_delta = -min(18, 6 * len(unmet)) if unmet else 4 if requirements else 0
+    experience_detail = " ".join(map(_detalle_experiencia, requirements)) or "La oferta no publica una duración comparable."
+    if unmet:
+        penal.append("experiencia deseable por acreditar")
 
     components.append(_component(
         "Experiencia", experience_delta, experience_detail, None,
@@ -410,6 +422,7 @@ def evaluar_oferta(oferta, perfil):
         "penalties_total": penalties_total,
         "final_score": final_score,
         "area": area,
+        "experience_requirements": requirements,
         "matched_roles": list(dict.fromkeys(hits_role))[:6],
         "matched_skills": list(dict.fromkeys(hits_skill))[:10],
     }
