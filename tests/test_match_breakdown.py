@@ -35,7 +35,8 @@ def test_experience_penalty_is_visible_in_breakdown():
     }
     result = evaluar_oferta(job, profile)
     exp = next(c for c in result["match_breakdown"]["components"] if c["label"] == "Experiencia")
-    assert exp["value"] == -24
+    assert result["puntaje"] == 0
+    assert result["match_breakdown"]["experience_blocked"] is True
     assert "5 años" in exp["detail"]
     assert "2" in exp["detail"]
 

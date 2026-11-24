@@ -6,6 +6,9 @@ from backend.supabase_rest import UserContext
 
 
 class FakeRepository:
+    def matching_profile(self, row):
+        return row.get("profile_data") or {}
+
     instances = []
 
     def __init__(self, ctx):
