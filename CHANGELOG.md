@@ -1,4 +1,4 @@
-## Próxima versión
+## 5.8.0
 
 - Se registra el contexto del fallo al iniciar búsquedas y se aíslan fallos de Chromium, fuentes y almacenamiento.
 - Se limita a una corrida activa por usuario mediante una migración que conserva el historial.
