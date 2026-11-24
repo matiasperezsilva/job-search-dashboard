@@ -4,7 +4,7 @@ import re
 from urllib.parse import quote_plus, urlsplit
 
 from .common import es_relevante_perfil, titulo_parece_relevante
-from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
+from .http_common import PortalBlocked, absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
 
 USES_BROWSER = False
 NOMBRE = "ChileTrabajos"
@@ -21,7 +21,10 @@ def _links_busqueda(termino: str):
     for a in doc.find_all("a", href=True):
         href = (a.get("href") or "").strip()
         link = absolute(BASE_URL, href).split("?")[0]
-        path = urlsplit(link).path
+        target = urlsplit(link)
+        if target.scheme != "https" or target.netloc not in {"chiletrabajos.cl", "www.chiletrabajos.cl"}:
+            continue
+        path = target.path
         # ChileTrabajos usa actualmente /trabajo/<id> y también puede incluir slug.
         if not re.match(r"^/trabajo/(?:[\w-]+-)?\d+/?$", path, re.I):
             continue
@@ -83,6 +86,8 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
                 if link not in seen:
                     seen.add(link)
                     items.append((link, hint))
+        except PortalBlocked:
+            raise
         except Exception as exc:
             if progreso:
                 progreso(f"ChileTrabajos · consulta omitida: {type(exc).__name__}")
@@ -99,6 +104,8 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
             oferta = _extraer(link)
             if es_relevante_perfil(oferta["titulo"], oferta["descripcion"], terminos):
                 ofertas.append(oferta)
+        except PortalBlocked:
+            raise
         except Exception:
             continue
     return ofertas
