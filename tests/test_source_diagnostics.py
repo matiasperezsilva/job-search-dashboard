@@ -74,3 +74,25 @@ def test_source_diagnostic_filtered_when_extracted_offer_does_not_match_terms():
     assert jobs == []
     assert stats[0]["estado"] == "filtered"
     assert stats[0]["filtered_count"] == 1
+
+
+def test_failed_browser_does_not_prevent_http_portal():
+    browser_adapter = SimpleNamespace(USES_BROWSER=True)
+    http_adapter = FakeModule([_job()], {})
+    with patch("jobsearch.services.collector.sync_playwright", side_effect=RuntimeError):
+        with patch("jobsearch.services.collector.importlib.import_module", side_effect=[browser_adapter, http_adapter]):
+            jobs, errors, stats = recolectar(["BNE", "GetOnBoard"], ["analista qa"])
+    assert [item["estado"] for item in stats] == ["error", "ok"]
+    assert errors[0]["fuente"] == "BNE"
+    assert len(jobs) == 1
+
+
+def test_database_failure_propagates_outside_portal_handling():
+    from pytest import raises
+
+    def fail_to_save(*_):
+        raise RuntimeError("database unavailable")
+
+    with patch("jobsearch.services.collector.importlib.import_module", return_value=FakeModule([_job()], {})):
+        with raises(RuntimeError, match="database unavailable"):
+            recolectar(["GetOnBoard"], ["analista qa"], on_source_result=fail_to_save)

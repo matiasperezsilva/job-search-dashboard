@@ -1,7 +1,7 @@
 
 from bs4 import BeautifulSoup
 
-from jobsearch.scrapers import laborum, trabajando, bne
+from jobsearch.scrapers import laborum, trabajando, bne, getonbrd
 
 
 def test_trabajando_slug_matches_public_search_route():
@@ -50,3 +50,15 @@ def test_bne_offer_link_pattern_supports_internal_and_external():
     import re
     assert re.search(r"/(?:oferta|ofertaEmpleoExterno)/[^/?#]+", "https://www.bne.cl/oferta/2026-094270")
     assert re.search(r"/(?:oferta|ofertaEmpleoExterno)/[^/?#]+", "https://www.bne.cl/ofertaEmpleoExterno/8360362")
+
+
+def test_get_on_board_feed_uses_original_job_url():
+    xml = """<jobs><job><title>Cloud Support</title><company>Acme</company>
+      <description><![CDATA[<p>Experiencia con Linux</p>]]></description>
+      <url>https://www.getonbrd.com/jobs/sysadmin-devops-qa/cloud-support-acme</url>
+      <date>2026-11-23</date></job></jobs>"""
+    jobs = list(getonbrd._feed_jobs(xml))
+    assert len(jobs) == 1
+    assert jobs[0]["descripcion"] == "Experiencia con Linux"
+    assert jobs[0]["published_at"] == "2026-11-23"
+    assert not list(getonbrd._feed_jobs(xml.replace("www.getonbrd.com", "other.example")))

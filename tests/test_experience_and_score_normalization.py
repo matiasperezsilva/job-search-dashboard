@@ -4,6 +4,24 @@ from jobsearch.services.cv_profile import _experiencia_por_fechas, construir_per
 from jobsearch.services.scoring import evaluar_oferta
 
 
+def test_legacy_taxonomy_does_not_count_skills_missing_from_cv():
+    perfil = {
+        "resumen": {"skills_detectadas": ["selenium"]},
+        "areas": {"QA": {"titulo": ["analista qa"], "skills": ["selenium", "python", "jira"]}},
+    }
+    oferta = {"titulo": "Analista QA", "descripcion": "Selenium, Python y Jira"}
+    result = evaluar_oferta(oferta, perfil)
+    assert result["match_breakdown"]["matched_skills"] == ["selenium"]
+
+
+def test_custom_role_outside_taxonomy_can_match():
+    perfil = construir_perfil_desde_texto("Experiencia profesional en mantenimiento de instrumentos musicales")
+    perfil["resumen"]["cargos_configurados"] = ["Luthier"]
+    result = evaluar_oferta({"titulo": "Luthier junior"}, perfil)
+    assert result["puntaje"] >= 30
+    assert result["match_breakdown"]["matched_roles"] == ["Luthier"]
+
+
 BERNARDITA_EXPERIENCE = """
 EXPERIENCIA
 QA Tester & Automatización Ene 2025 - Abr 2025

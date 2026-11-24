@@ -7,6 +7,24 @@ import unittest
 from jobsearch.services.letters import coincidencias_cv_oferta, generar_borrador_local, _extraer_contenido_chat
 
 
+def test_default_gemini_request_keeps_cv_and_job_data_local():
+    from io import BytesIO
+    from unittest.mock import patch
+    from jobsearch.services.letters import ConfigGemini, generar_carta_gemini
+
+    response = BytesIO(b'{"candidates":[{"content":{"parts":[{"text":"Agradezco su tiempo."}]}}]}')
+    with patch("jobsearch.services.letters.request.urlopen", return_value=response) as call:
+        draft = generar_carta_gemini(
+            {"titulo": "Cloud Support", "empresa": "Acme", "descripcion": "Linux"},
+            {"resumen": {"skills_detectadas": ["linux"]}},
+            "CV confidencial de Matías",
+            ConfigGemini(api_key="fake"),
+        )
+    request = call.call_args.args[0]
+    assert b"Acme" not in request.data and b"confidencial" not in request.data
+    assert "Cloud Support" in draft and "linux" in draft and "Agradezco su tiempo." in draft
+
+
 class TestLetters(unittest.TestCase):
     def setUp(self):
         self.perfil = {
