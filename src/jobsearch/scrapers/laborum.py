@@ -321,14 +321,15 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
                     offers.append(job)
         except Exception:
             _LAST_DIAGNOSTIC["query_errors"] += 1
+        if _LAST_DIAGNOSTIC["blocked"]:
+            return []
 
     if offers:
         _LAST_DIAGNOSTIC["links_found"] = len(offers)
         _LAST_DIAGNOSTIC["offers_extracted"] = len(offers)
         return offers[:12 if modo == "rapida" else 25]
 
-    # 2) SearchV2 desde contexto de navegador. Se intenta incluso si requests recibió
-    # 403, porque el frontend público puede tener cookies/origen aceptados.
+    # 2) SearchV2 desde el navegador si la consulta anterior respondió sin bloqueo.
     if browser is not None:
         _LAST_DIAGNOSTIC["transport"] = "browser-api"
         page = nueva_pagina(browser)
@@ -343,12 +344,13 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
                             offers.append(job)
                 except Exception:
                     _LAST_DIAGNOSTIC["query_errors"] += 1
+                if _LAST_DIAGNOSTIC["blocked"]:
+                    return []
         finally:
             page.close()
         if offers:
             _LAST_DIAGNOSTIC["links_found"] = len(offers)
             _LAST_DIAGNOSTIC["offers_extracted"] = len(offers)
-            _LAST_DIAGNOSTIC["blocked"] = False
             return offers[:12 if modo == "rapida" else 25]
 
     # 3) HTML público directo.
@@ -359,9 +361,11 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
             links.extend(_html_links(term))
         except Exception:
             _LAST_DIAGNOSTIC["query_errors"] += 1
+        if _LAST_DIAGNOSTIC["blocked"]:
+            return []
     links = list(dict.fromkeys(links))
 
-    # 4) Navegador final. Un 403 de requests no impide probar el contexto del browser.
+    # 4) Navegador final si el HTML no contiene enlaces.
     if not links and browser is not None:
         _LAST_DIAGNOSTIC["transport"] = "playwright-fallback"
         page = nueva_pagina(browser)
@@ -370,7 +374,11 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
                 links.extend(_browser_links(page, term))
             except Exception:
                 _LAST_DIAGNOSTIC["query_errors"] += 1
+            if _LAST_DIAGNOSTIC["blocked"]:
+                break
         page.close()
+        if _LAST_DIAGNOSTIC["blocked"]:
+            return []
         links = list(dict.fromkeys(links))
 
     _LAST_DIAGNOSTIC["links_found"] = len(links)

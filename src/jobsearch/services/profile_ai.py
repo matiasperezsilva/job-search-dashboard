@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
-from urllib import error, parse, request
+import re
+from urllib import parse, request
 from jobsearch.services.letters import ConfigGemini, _sanitizar_cv_para_ia, _extraer_contenido_gemini
 
 
@@ -20,9 +21,8 @@ def enriquecer_perfil_con_gemini(cv_texto: str, base: dict, config: ConfigGemini
             "competencias": {"type": "ARRAY", "items": {"type": "STRING"}},
             "seniority": {"type": "STRING"},
             "industrias": {"type": "ARRAY", "items": {"type": "STRING"}},
-            "anos_experiencia_relevante": {"type": "NUMBER"},
         },
-        "required": ["area_principal", "areas_secundarias", "roles_objetivo", "competencias", "seniority", "industrias", "anos_experiencia_relevante"],
+        "required": ["area_principal", "areas_secundarias", "roles_objetivo", "competencias", "seniority", "industrias"],
     }
     prompt = f"""Analiza este currículum para un buscador laboral multiprofesional.
 No asumas que pertenece a tecnología. Extrae únicamente información respaldada por el CV.
@@ -30,7 +30,6 @@ Los roles_objetivo deben ser nombres de cargos reales que la persona podría bus
 Para area_principal y roles_objetivo, prioriza en este orden: experiencia profesional real, título/encabezado profesional del CV y luego formación. Un proyecto académico, proyecto de título o tesis puede aportar competencias, pero NO debe desplazar a la experiencia laboral como área principal.
 No clasifiques QA de software como calidad industrial/minería solo por frases genéricas como "aseguramiento de calidad"; exige señales industriales explícitas como faena, minería, ISO 9001, QA/QC, inspección, manufactura, laboratorio o similares.
 Devuelve entre 2 y 10 roles objetivo y hasta 25 competencias. No incluyas datos personales.
-Calcula anos_experiencia_relevante usando SOLO experiencia profesional/laboral respaldada por fechas o duración explícita. No sumes períodos superpuestos, estudios ni proyectos académicos. Si no puede determinarse con seguridad, usa 0.
 
 CURRÍCULUM:
 {cv}"""
@@ -47,9 +46,21 @@ CURRÍCULUM:
     except Exception:
         return base  # El CV nunca deja de funcionar si la IA/cuota falla.
 
-    roles = list(dict.fromkeys(str(x).strip() for x in ai.get("roles_objetivo", []) if str(x).strip()))[:16]
-    skills = list(dict.fromkeys(str(x).strip().lower() for x in ai.get("competencias", []) if str(x).strip()))[:40]
-    areas_names = [str(ai.get("area_principal", "")).strip()] + [str(x).strip() for x in ai.get("areas_secundarias", [])]
+    if not isinstance(ai, dict):
+        return base
+
+    def strings(key):
+        values = ai.get(key)
+        return [value.strip() for value in values if isinstance(value, str) and value.strip()] if isinstance(values, list) else []
+
+    roles = list(dict.fromkeys(strings("roles_objetivo")))[:16]
+    evidence = " ".join(cv_texto.casefold().split())
+    skills = [
+        skill for skill in dict.fromkeys(value.casefold() for value in strings("competencias"))
+        if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", evidence)
+    ][:40]
+    primary = ai.get("area_principal")
+    areas_names = ([primary.strip()] if isinstance(primary, str) else []) + strings("areas_secundarias")
     areas_names = list(dict.fromkeys(x for x in areas_names if x))[:5]
     if not roles or not areas_names:
         return base
@@ -57,22 +68,16 @@ CURRÍCULUM:
     # Cada área comparte el conjunto inferido de roles/competencias; el scoring exige
     # coincidencia de cargo o varias competencias, evitando matches por una sola keyword.
     areas = {}
+    resumen = dict(base.get("resumen") or {})
+    seniority = resumen.get("seniority_estimado", "no especificado")
     for i, area in enumerate(areas_names):
-        areas[area] = {"titulo": roles, "skills": skills, "peso": 1.15 if i == 0 else 0.95, "nivel": str(ai.get("seniority") or "no especificado").lower()}
+        areas[area] = {"titulo": roles, "skills": skills, "peso": 1.15 if i == 0 else 0.95, "nivel": seniority}
     out = dict(base)
     out["origen"] = "cv+gemini"
     out["version_perfil"] = 3
     out["areas"] = areas
-    out["dominios_valorados"] = [str(x).strip() for x in ai.get("industrias", []) if str(x).strip()][:12]
-    resumen = dict(base.get("resumen") or {})
-    local_years = resumen.get("anos_experiencia")
-    ai_years = max(0, float(ai.get("anos_experiencia_relevante") or 0))
-    # Una estimación determinística por rangos de fechas tiene prioridad. Gemini solo
-    # completa cuando el parser local no pudo obtener duración laboral.
-    final_years = local_years if local_years is not None else (ai_years if ai_years > 0 else None)
-    resumen.update({"areas_detectadas": areas_names, "skills_detectadas": skills, "roles_objetivo": roles, "terminos_busqueda": roles, "seniority_estimado": str(ai.get("seniority") or "no especificado"), "anos_experiencia": final_years})
-    if final_years is not None and resumen.get("meses_experiencia") is None:
-        resumen["meses_experiencia"] = int(round(float(final_years) * 12))
-        resumen["experiencia_fuente"] = "gemini"
+    out["dominios_valorados"] = strings("industrias")[:12]
+    skills = list(dict.fromkeys([*(resumen.get("skills_detectadas") or []), *skills]))[:40]
+    resumen.update({"areas_detectadas": areas_names, "skills_detectadas": skills, "roles_objetivo": roles, "terminos_busqueda": roles})
     out["resumen"] = resumen
     return out

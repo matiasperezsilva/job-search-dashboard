@@ -1,3 +1,11 @@
+## 5.8.0
+
+- Se registra el contexto del fallo al iniciar búsquedas y se aíslan fallos de Chromium, fuentes y almacenamiento.
+- Se limita a una corrida activa por usuario mediante una migración que conserva el historial.
+- Se usa el feed público de Get on Board y se agregan accesos manuales a LinkedIn, Laborum y Trabajando.com.
+- El CV incorpora certificaciones mencionadas, conserva los cargos elegidos y usa solo competencias respaldadas para el calce.
+- Se actualizan dependencias y se agregan comprobaciones de tipos y auditoría al CI.
+
 ## 5.7.11 — Rolvora + recuperación avanzada de fuentes
 - Se integra la identidad visual definitiva aprobada: R ribbon + sparkle + check/arrow y paleta violeta/azul/cyan.
 - El producto adopta la marca **Rolvora** y el descriptor `Career match workspace`.

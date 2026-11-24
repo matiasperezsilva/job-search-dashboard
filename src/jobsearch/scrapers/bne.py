@@ -194,6 +194,9 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
             cards.extend(_buscar_links_por_termino(page, term))
         except Exception:
             _LAST_DIAGNOSTIC["query_errors"] += 1
+        if _LAST_DIAGNOSTIC["blocked"]:
+            page.close()
+            return []
 
     # Deduplica por URL conservando el texto más descriptivo del listado.
     by_link = {}

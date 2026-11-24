@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -9,18 +11,33 @@ SRC = ROOT / "src"
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path: sys.path.insert(0, str(SRC))
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from backend.repository import Repository
-from backend.supabase_rest import SupabaseRest, UserContext
-from jobsearch.services.collector import recolectar
+from backend.repository import Repository, source_snapshot_expired
+from backend.supabase_rest import SupabaseError, SupabaseRest, UserContext
+from jobsearch.services.collector import FUENTES, recolectar
 from jobsearch.services.cv_profile import construir_perfil_desde_texto, extraer_texto_cv
 from jobsearch.services.profile_ai import enriquecer_perfil_con_gemini
-from jobsearch.services.letters import ConfigAPI, config_api_desde_entorno, config_gemini_desde_entorno, generar_borrador_local, generar_carta_gemini, generar_carta_inteligente
+from jobsearch.services.letters import config_api_desde_entorno, config_gemini_desde_entorno, generar_borrador_local, generar_carta_gemini, generar_carta_inteligente
 from jobsearch.services.scoring import evaluar_oferta
 
-app = FastAPI(title="Job Search API", version="5.7.5")
+app = FastAPI(title="Rolvora API", version="5.8.0")
+logger = logging.getLogger(__name__)
+
+
+@app.exception_handler(SupabaseError)
+async def handle_supabase_error(request: Request, exc: SupabaseError):
+    route = getattr(request.scope.get("route"), "path", "unknown")
+    logger.warning("Supabase error route=%s resource=%s status=%s code=%s", route, exc.resource, exc.status, exc.code)
+    if exc.code in {"42P01", "42703", "PGRST204", "PGRST205"}:
+        detail = "La base de datos de Rolvora requiere una actualización."
+    elif exc.status == 401:
+        return JSONResponse({"detail": "Sesión inválida o expirada"}, status_code=401)
+    else:
+        detail = "No se pudo consultar la base de datos. Intenta nuevamente."
+    return JSONResponse({"detail": detail}, status_code=503)
 
 
 def auth_context(authorization: Annotated[str | None, Header()] = None) -> UserContext:
@@ -29,8 +46,13 @@ def auth_context(authorization: Annotated[str | None, Header()] = None) -> UserC
     token = authorization.split(" ", 1)[1].strip()
     try:
         return SupabaseRest(token).verify_user()
-    except Exception:
-        raise HTTPException(401, "Sesión inválida o expirada")
+    except KeyError as exc:
+        logger.error("Falta una variable de configuración de Supabase: %s", exc.args[0])
+        raise HTTPException(503, "El servicio de autenticación no está configurado.") from exc
+    except SupabaseError as exc:
+        if exc.status == 403:
+            raise HTTPException(401, "Sesión inválida o expirada") from exc
+        raise
 
 
 def repo(ctx: UserContext = Depends(auth_context)):
@@ -62,9 +84,6 @@ class JobFlagsBody(BaseModel):
 
 class LetterGenerateBody(BaseModel):
     mode: str = "local"
-    api_base_url: str | None = None
-    api_key: str | None = None
-    api_model: str | None = None
 
 class LetterSaveBody(BaseModel):
     content: str
@@ -86,6 +105,7 @@ def ai_settings():
         "configured": bool(cfg),
         "provider": "Gemini" if cfg else None,
         "model": cfg.model if cfg else None,
+        "cv_text_enabled": bool(cfg and cfg.allow_cv_text),
     }
 
 @app.get("/dashboard")
@@ -101,15 +121,18 @@ def profile(r: Repository = Depends(repo)):
     return {"active": True, "cv_name": row.get("cv_name", ""), "profile": data}
 
 @app.post("/profile/upload")
-async def upload_profile(file: UploadFile = File(...), r: Repository = Depends(repo)):
-    content = await file.read()
+def upload_profile(file: UploadFile = File(...), use_gemini: bool = Form(False), r: Repository = Depends(repo)):
+    limit = 5 * 1024 * 1024
+    content = file.file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(413, "El currículum supera el límite de 5 MB.")
     try:
         text = extraer_texto_cv(file.filename or "cv.pdf", content)
         if len(text.strip()) < 80:
             raise ValueError("El currículum no contiene suficiente texto legible.")
         profile = construir_perfil_desde_texto(text)
-        gemini = config_gemini_desde_entorno()
-        if gemini:
+        gemini = config_gemini_desde_entorno() if use_gemini else None
+        if gemini and gemini.allow_cv_text:
             profile = enriquecer_perfil_con_gemini(text, profile, gemini)
         r.save_profile(profile, text, file.filename or "curriculum")
         return {"ok": True, "cv_name": file.filename, "profile": profile}
@@ -142,10 +165,7 @@ def update_preferences(body: PreferencesBody, r: Repository = Depends(repo)):
 
 def _execute_search(ctx: UserContext, run_id: str, sources: list[str], terms: list[str], mode: str):
     r = Repository(ctx)
-    row = r.profile()
-    profile = (row or {}).get("profile_data") or {}
     progress_state = {"message": "Preparando búsqueda", "current_source": "", "source_index": 0, "source_total": len(sources), "source_states": {name: {"status": "pending"} for name in sources}}
-    r.update_search_run(run_id, {"status": "running", "progress": progress_state})
 
     def progress(event):
         nonlocal progress_state
@@ -180,27 +200,36 @@ def _execute_search(ctx: UserContext, run_id: str, sources: list[str], terms: li
                     "blocked": stat.get("blocked", False),
                 }
             progress_state["source_states"] = states
+            if event.get("tipo") == "detalle":
+                return
         else:
             progress_state["message"] = str(event)
-        try:
-            r.update_search_run(run_id, {"progress": progress_state})
-        except Exception:
-            pass
+        r.update_search_run(run_id, {"progress": progress_state})
 
     try:
+        r.update_search_run(run_id, {"status": "running", "progress": progress_state})
+        row = r.profile()
+        if not row:
+            raise ValueError("Perfil activo ausente")
+        profile = row.get("profile_data") or {}
         new_count = 0
 
         def persist_source(_source, source_jobs):
             nonlocal new_count
-            if source_jobs:
-                new_count += r.save_jobs(source_jobs, profile, evaluar_oferta)
+            relevant = [job for job in source_jobs if evaluar_oferta(job, profile)["puntaje"] >= 30]
+            if relevant:
+                new_count += r.save_jobs(relevant, profile, evaluar_oferta)
 
         jobs, errors, stats = recolectar(sources, terms, True, mode, progress, persist_source)
         relevant = [j for j in jobs if evaluar_oferta(j, profile)["puntaje"] >= 30]
         result = {"found": len(relevant), "new": new_count, "stats": stats, "errors": errors}
         r.update_search_run(run_id, {"status": "completed", "result": result, "progress": {**progress_state, "message": "Búsqueda finalizada"}})
     except Exception as exc:
-        r.update_search_run(run_id, {"status": "failed", "error": str(exc), "progress": {**progress_state, "message": "La búsqueda se interrumpió"}})
+        logger.error("Search failed run=%s type=%s status=%s code=%s", run_id, type(exc).__name__, getattr(exc, "status", None), getattr(exc, "code", None))
+        try:
+            r.update_search_run(run_id, {"status": "failed", "error": "No se pudo completar la búsqueda. Intenta nuevamente.", "progress": {**progress_state, "message": "La búsqueda se interrumpió"}})
+        except SupabaseError as update_error:
+            logger.error("Search status unavailable run=%s status=%s code=%s", run_id, update_error.status, update_error.code)
 
 
 @app.post("/search")
@@ -215,13 +244,25 @@ def search(body: SearchBody, background_tasks: BackgroundTasks, ctx: UserContext
     profile = row.get("profile_data") or {}
     terms = body.terms or profile.get("resumen", {}).get("terminos_busqueda", [])
     terms = list(dict.fromkeys(t.strip() for t in terms if t and t.strip()))[:12]
-    allowed = {"GetOnBoard", "Computrabajo", "ChileTrabajos", "Laborum", "Trabajando.com", "BNE", "LinkedIn"}
-    sources = [s for s in body.sources if s in allowed]
+    if not terms:
+        raise HTTPException(400, "Agrega al menos un cargo objetivo antes de buscar.")
+    if body.mode not in {"rapida", "exhaustiva"}:
+        raise HTTPException(400, "Modo de búsqueda inválido.")
+    sources = list(dict.fromkeys(s for s in body.sources if s in FUENTES))
     if not sources:
         raise HTTPException(400, "Selecciona al menos una fuente.")
-    run = r.create_search_run(body.mode, sources, terms)
+    try:
+        run = r.create_search_run(body.mode, sources, terms)
+    except SupabaseError as exc:
+        if exc.code != "23505":
+            raise
+        active = r.active_search_run()
+        if active:
+            return {"run_id": active["id"], "status": active["status"], "reused": True}
+        raise HTTPException(409, "La búsqueda anterior acaba de cambiar de estado. Vuelve a intentar.") from exc
     if not run:
-        raise HTTPException(500, "No se pudo crear la corrida de búsqueda.")
+        logger.error("Supabase no devolvió la búsqueda creada")
+        raise HTTPException(503, "No se pudo crear la búsqueda. Intenta nuevamente.")
     run_id = run["id"]
     background_tasks.add_task(_execute_search, ctx, run_id, sources, terms, body.mode)
     return {"run_id": run_id, "status": "queued"}
@@ -282,25 +323,27 @@ def get_letter(job_id: str, r: Repository = Depends(repo)):
 
 @app.post("/jobs/{job_id}/letter/generate")
 def generate_letter(job_id: str, body: LetterGenerateBody, r: Repository = Depends(repo)):
-    jobs = [j for j in r.jobs(0, include_hidden=True, include_old=True, deduplicate=False) if j["id"] == job_id]
-    if not jobs: raise HTTPException(404, "Oferta no encontrada")
+    job = r.job(job_id)
+    if not job: raise HTTPException(404, "Oferta no encontrada")
     row = r.profile()
     if not row: raise HTTPException(400, "No hay currículum activo")
-    job, profile, cv = jobs[0], row.get("profile_data") or {}, row.get("cv_text") or ""
+    profile, cv = row.get("profile_data") or {}, row.get("cv_text") or ""
+    if source_snapshot_expired(job):
+        raise HTTPException(409, "Actualiza la búsqueda para generar una carta con una oferta vigente.")
     if body.mode == "inteligente":
         try:
             gemini = config_gemini_desde_entorno()
             if gemini:
+                if job.get("fuente") == "GetOnBoard" and gemini.allow_cv_text:
+                    gemini = replace(gemini, allow_cv_text=False)
                 content = generar_carta_gemini(job, profile, cv, gemini)
             else:
                 # Compatibilidad con configuraciones genéricas anteriores.
-                cfg = None
-                if body.api_base_url and body.api_key and body.api_model:
-                    cfg = ConfigAPI(body.api_base_url, body.api_key, body.api_model)
-                else:
-                    cfg = config_api_desde_entorno()
+                cfg = config_api_desde_entorno()
                 if not cfg:
                     raise HTTPException(400, "La generación inteligente requiere GEMINI_API_KEY en Render.")
+                if job.get("fuente") == "GetOnBoard":
+                    raise HTTPException(400, "Para esta fuente está disponible el borrador local.")
                 content = generar_carta_inteligente(job, profile, cv, cfg)
         except HTTPException:
             raise

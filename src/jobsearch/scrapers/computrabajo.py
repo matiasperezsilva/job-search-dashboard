@@ -9,7 +9,7 @@ import unicodedata
 from urllib.parse import quote, urlsplit
 
 from .common import es_relevante_perfil
-from .http_common import absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
+from .http_common import PortalBlocked, absolute, date_posted, jobposting_jsonld, location_text, organization_name, soup, text_from_html
 
 USES_BROWSER = False
 
@@ -35,7 +35,10 @@ def _links_busqueda(termino):
         href = (a.get("href", "") or "").strip()
         # Puede venir relativo o absoluto. Validamos el path, no el string crudo.
         link = absolute(BASE_URL, href)
-        path = urlsplit(link).path
+        target = urlsplit(link)
+        if target.scheme != "https" or target.netloc not in {"cl.computrabajo.com"}:
+            continue
+        path = target.path
         if not path.startswith(DETAIL_PREFIX):
             continue
         if link not in seen:
@@ -75,6 +78,8 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
             for link in _links_busqueda(termino):
                 if link not in seen:
                     seen.add(link); links.append(link)
+        except PortalBlocked:
+            raise
         except Exception as exc:
             if progreso: progreso(f"Computrabajo · consulta omitida: {type(exc).__name__}")
         if modo == "rapida" and len(links) >= MAX_DETALLES_RAPIDA:
@@ -88,6 +93,8 @@ def buscar_ofertas(browser=None, terminos=None, modo="rapida", progreso=None):
             oferta = _extraer(link)
             if es_relevante_perfil(oferta["titulo"], oferta["descripcion"], terminos):
                 ofertas.append(oferta)
+        except PortalBlocked:
+            raise
         except Exception:
             continue
     return ofertas

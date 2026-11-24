@@ -39,8 +39,9 @@ def _parse_dt(value):
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except Exception:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
         return None
 
 
@@ -48,9 +49,14 @@ def _is_old(job: dict, days: int = 30) -> bool:
     reference = _parse_dt(job.get("published_at")) or _parse_dt(job.get("first_seen"))
     if not reference:
         return False
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
     return datetime.now(timezone.utc) - reference > timedelta(days=days)
+
+
+def source_snapshot_expired(job: dict) -> bool:
+    if job.get("fuente") != "GetOnBoard":
+        return False
+    last_seen = _parse_dt(job.get("last_seen"))
+    return not last_seen or datetime.now(timezone.utc) - last_seen >= timedelta(hours=24)
 
 
 class Repository:
@@ -69,6 +75,10 @@ class Repository:
         current_data = (current or {}).get("profile_data") or {}
         if current_data.get("preferencias") and not profile.get("preferencias"):
             profile["preferencias"] = current_data["preferencias"]
+        current_summary = current_data.get("resumen") or {}
+        if "cargos_configurados" in current_summary:
+            profile["resumen"]["cargos_configurados"] = current_summary["cargos_configurados"]
+            profile["resumen"]["terminos_busqueda"] = current_summary["cargos_configurados"]
         return self.db.upsert("profiles", {
             "user_id": self.ctx.user_id, "cv_name": cv_name, "cv_text": cv_text,
             "profile_data": profile, "updated_at": now_iso(),
@@ -89,7 +99,7 @@ class Repository:
         if not current:
             raise ValueError("No hay currículum activo.")
         data = current.get("profile_data") or {}
-        data.setdefault("resumen", {})["terminos_busqueda"] = terms
+        data.setdefault("resumen", {}).update(terminos_busqueda=terms, cargos_configurados=terms)
         return self.db.update("profiles", {"profile_data": data, "updated_at": now_iso()}, {
             "user_id": f"eq.{self.ctx.user_id}"
         })
@@ -107,12 +117,13 @@ class Repository:
         rows = self.db.select("search_runs", {
             "select": "*", "user_id": f"eq.{self.ctx.user_id}", "id": f"eq.{run_id}", "limit": "1"
         })
-        return rows[0] if rows else None
+        return self._expire_search_run(rows[0]) if rows else None
 
     def update_search_run(self, run_id: str, values: dict):
         values = {**values, "updated_at": now_iso()}
         return self.db.update("search_runs", values, {
-            "user_id": f"eq.{self.ctx.user_id}", "id": f"eq.{run_id}"
+            "user_id": f"eq.{self.ctx.user_id}", "id": f"eq.{run_id}",
+            "status": "in.(queued,running)",
         })
 
 
@@ -124,15 +135,19 @@ class Repository:
         })
         if not rows:
             return None
-        run = rows[0]
-        try:
-            updated = datetime.fromisoformat(str(run.get("updated_at", "")).replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) - updated > timedelta(minutes=30):
-                self.update_search_run(run["id"], {"status": "failed", "error": "La búsqueda anterior quedó interrumpida por un reinicio del servidor."})
-                return None
-        except Exception:
-            pass
-        return run
+        run = self._expire_search_run(rows[0])
+        return run if run["status"] in {"queued", "running"} else None
+
+    def _expire_search_run(self, run: dict):
+        updated = _parse_dt(run.get("updated_at"))
+        if run["status"] not in {"queued", "running"} or not updated or datetime.now(timezone.utc) - updated <= timedelta(minutes=30):
+            return run
+        failed = {"status": "failed", "error": "La búsqueda se interrumpió. Puedes iniciar otra."}
+        rows = self.db.update("search_runs", {**failed, "updated_at": now_iso()}, {
+            "user_id": f"eq.{self.ctx.user_id}", "id": f"eq.{run['id']}",
+            "status": "in.(queued,running)", "updated_at": f"eq.{run['updated_at']}",
+        })
+        return rows[0] if rows else run
 
     def save_jobs(self, jobs: list[dict], profile: dict, evaluator):
         existing = self.db.select("jobs", {"select": "id,link,first_seen,favorite,hidden,hidden_at,published_at", "user_id": f"eq.{self.ctx.user_id}"})
@@ -193,6 +208,14 @@ class Repository:
             job["is_old"] = _is_old(job)
             if not include_old and job["is_old"] and job.get("estado") == "Sin gestionar" and not job.get("favorite"):
                 continue
+            if source_snapshot_expired(job):
+                if not app and not job.get("favorite") and not job.get("hidden"):
+                    continue
+                job.update(
+                    titulo="Oferta guardada en Get on Board", empresa="", modalidad="", descripcion="",
+                    razon="Consulta la publicación original para ver la información vigente.",
+                    match_breakdown={}, source_snapshot_expired=True,
+                )
             out.append(job)
 
         if deduplicate:
@@ -216,7 +239,7 @@ class Repository:
                 b = _parse_dt(job.get("published_at")) or _parse_dt(job.get("first_seen"))
                 close_enough = True
                 if a and b:
-                    close_enough = abs((a - b).days) <= 21
+                    close_enough = abs(a - b) <= timedelta(days=21)
                 if not close_enough:
                     passthrough.append(job)
                     continue
@@ -234,8 +257,6 @@ class Repository:
                     clone["duplicate_sources"] = keep_sources
                     clone["duplicate_count"] = keep_count
                     grouped[sig] = clone
-                elif len(str(job.get("descripcion") or "")) > len(str(current.get("descripcion") or "")):
-                    current["descripcion"] = job.get("descripcion")
             out = list(grouped.values()) + passthrough
 
         if sort == "recent":
@@ -245,6 +266,12 @@ class Repository:
         else:
             out.sort(key=lambda j: (int(j.get("puntaje") or 0), j.get("published_at") or j.get("last_seen") or ""), reverse=True)
         return out
+
+    def job(self, job_id_: str):
+        rows = self.db.select("jobs", {
+            "select": "*", "user_id": f"eq.{self.ctx.user_id}", "id": f"eq.{job_id_}", "limit": "1",
+        })
+        return rows[0] if rows else None
 
     def update_job_flags(self, job_id_: str, favorite=None, hidden=None):
         values = {}
@@ -291,7 +318,7 @@ class Repository:
         # Verificación de persistencia: la API solo confirma éxito si puede releer
         # exactamente la carta del usuario autenticado.
         saved = self.letter(job_id_)
-        if not saved:
+        if not saved or saved.get("contenido") != clean or saved.get("modo") != mode:
             raise RuntimeError("El borrador no pudo verificarse después de guardarlo.")
         return saved
 

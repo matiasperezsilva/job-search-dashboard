@@ -54,6 +54,15 @@ class SearchOrchestrationTests(unittest.TestCase):
         self.assertEqual(states["GetOnBoard"]["status"], "completed")
         self.assertEqual(states["GetOnBoard"]["cantidad"], 1)
 
+    @patch("backend.main.Repository", FakeRepository)
+    def test_profile_failure_transitions_run_to_failed_without_exposing_details(self):
+        ctx = UserContext(token="token", user_id="user")
+        with patch.object(FakeRepository, "profile", side_effect=RuntimeError("private database detail")):
+            _execute_search(ctx, "run-1", ["BNE"], ["analista"], "rapida")
+        final = FakeRepository.instances[-1].updates[-1][1]
+        self.assertEqual(final["status"], "failed")
+        self.assertNotIn("private database detail", final["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

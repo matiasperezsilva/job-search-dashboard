@@ -7,7 +7,7 @@ Aplicación web para buscar, priorizar y gestionar oportunidades laborales basá
 
 ### Perfil profesional multipropósito
 
-El motor no está limitado a TI. Al cargar un CV, construye un perfil con áreas, cargos objetivo, competencias y seniority. Si `GEMINI_API_KEY` está configurada, Gemini usa salida JSON estructurada para ampliar la cobertura a profesiones no incluidas en la taxonomía local; si la API no está disponible, existe un analizador local de respaldo. Los cargos objetivo siempre pueden editarse antes de buscar.
+Al cargar un CV, Rolvora extrae experiencia, áreas, competencias y menciones de certificaciones. El análisis local funciona con cualquier perfil y permite editar los cargos objetivo. Si el administrador habilita el envío de texto a Gemini bajo condiciones de tratamiento compatibles, cada persona puede optar por ampliar el análisis. Los años de experiencia se calculan con la evidencia del CV.
 
 ## Arquitectura
 
@@ -73,10 +73,12 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
+Copia `.env.example` a `.env`. Usa Python 3.12, Node.js 22 y un proyecto Supabase de desarrollo con todas las migraciones aplicadas en orden.
+
 Inicia FastAPI:
 
 ```bash
-uvicorn backend.main:app --host 127.0.0.1 --port 8000
+uvicorn backend.main:app --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
 En otra terminal:
@@ -98,11 +100,11 @@ El `Dockerfile` inicia Next.js y FastAPI dentro del mismo Web Service, por lo qu
 
 ## Base de datos reproducible
 
-El esquema de Supabase se versiona en `supabase/migrations/001_initial_schema.sql` e incluye tablas, índices y políticas RLS.
+Aplica en orden los archivos de `supabase/migrations/`. Incluyen tablas, índices, políticas RLS y el índice que limita a una búsqueda activa por cuenta.
 
 ## Privacidad
 
-El archivo original del CV se procesa en memoria. La información procesada y las oportunidades se almacenan en Supabase con Row Level Security para separar los datos de cada usuario.
+El archivo del CV se procesa durante la solicitud. Supabase conserva el texto extraído y el perfil. El análisis con Gemini requiere elegirlo al subir el CV. La información procesada y las oportunidades se almacenan en Supabase con Row Level Security para separar los datos de cada usuario.
 
 ## Autor
 
@@ -125,13 +127,10 @@ El `Site URL` debe apuntar a la raíz pública de la aplicación.
 
 ## Cartas inteligentes con Gemini
 
-El modo **Inteligente · Gemini** usa la Gemini Developer API. En producción solo requiere `GEMINI_API_KEY`; el modelo predeterminado es `gemini-3.5-flash-lite`. La clave se guarda como secreto de Render y nunca se envía al navegador. Antes de enviar el CV al proveedor, la aplicación elimina correos, teléfonos y URLs del texto. El modo local sigue disponible sin ninguna API.
+El modo **Inteligente · Gemini** usa la Gemini Developer API. En producción solo requiere `GEMINI_API_KEY`; el modelo predeterminado es `gemini-3.5-flash-lite`. La clave se guarda como secreto de Render y nunca se envía al navegador. Por defecto Gemini redacta una frase de cierre sin recibir el CV ni los datos de la oferta. Rolvora personaliza el resto de la carta localmente. `GEMINI_ALLOW_CV_TEXT` habilita el análisis ampliado y la generación desde texto con datos de contacto omitidos cuando las condiciones del proveedor permiten ese tratamiento.
 
 ### Matching de experiencia
 Cuando el CV permite determinar años de experiencia profesional con suficiente respaldo, el motor los compara con requisitos explícitos de las ofertas. La experiencia es una señal adicional: no sustituye el match de cargo, área y competencias.
-
-### LinkedIn
-La integración consulta únicamente páginas públicas de LinkedIn Jobs y no almacena credenciales ni cookies. LinkedIn no ofrece una API pública general de búsqueda de empleos para este caso; por ello la fuente puede limitar consultas automatizadas y, si ocurre, falla de forma aislada sin detener los demás portales.
 
 ## Match explicable
 
@@ -185,6 +184,14 @@ La búsqueda distingue entre ausencia de coincidencias y fallos técnicos del po
 
 La sección de seguimiento permite editar el estado y las notas de cada proceso. Si una vacante fue marcada por error, **Quitar seguimiento** elimina únicamente el registro de seguimiento y devuelve la oferta a Oportunidades como `Sin gestionar`; la vacante no se elimina de la base.
 
-## Estrategia de fuentes resistentes
+## Fuentes de empleo
 
-Los portales no se consultan todos de la misma forma. Laborum prioriza su endpoint público de búsqueda y usa HTML/navegador como fallback; Trabajando.com utiliza navegación de sus páginas públicas para evitar timeouts del transporte HTTP desde hosting; BNE tolera cambios de formulario y reconoce tanto ofertas internas como ofertas externas. Cada fuente informa qué transporte utilizó y en qué etapa falló.
+Get on Board utiliza su feed público. Computrabajo, ChileTrabajos y BNE conservan adaptadores de páginas públicas que se detienen ante restricciones de acceso detectadas. LinkedIn, Trabajando.com y Laborum se abren en sus portales. La [auditoría de estabilización](docs/estabilizacion.md) registra el estado de cada integración.
+
+## Ejemplo de perfil individual
+
+En **Perfil → Cargos objetivo**, un perfil orientado a AWS puede guardar `AWS Cloud Support, Cloud Engineer Junior, Cloud Operations, Cloud Analyst, DevOps Junior, Infraestructura TI, QA Cloud, SDET`. La certificación AWS Certified Cloud Practitioner y la experiencia en QA, bases de datos y operaciones TI se incorporan al cargar un CV donde figuren esos antecedentes. Los cargos y preferencias se guardan en la cuenta que los configura.
+
+## Validación
+
+Desde la raíz, instala `requirements-dev.txt`, configura `PYTHONPATH=src:.` en Linux o `PYTHONPATH=src;.` en Windows y ejecuta `python -m pytest -q`. El frontend se valida con `npm run typecheck` y `npm run build`. GitHub Actions ejecuta las pruebas, la compilación y las auditorías de dependencias. La [guía de Render](docs/despliegue_render.md) describe el despliegue y su verificación.

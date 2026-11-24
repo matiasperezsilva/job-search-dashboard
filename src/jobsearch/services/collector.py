@@ -1,17 +1,17 @@
 import importlib
+import logging
 import time
 from playwright.sync_api import sync_playwright
 from jobsearch.scrapers.common import es_relevante_perfil, oferta_es_valida
+from jobsearch.scrapers.http_common import PortalBlocked
 
 FUENTES = {
     "GetOnBoard": "getonbrd",
     "Computrabajo": "computrabajo",
     "ChileTrabajos": "chiletrabajos",
-    "Laborum": "laborum",
-    "Trabajando.com": "trabajando",
     "BNE": "bne",
-    "LinkedIn": "linkedin",
 }
+logger = logging.getLogger(__name__)
 
 
 def recolectar(fuentes, terminos=None, headless=True, modo="rapida", progreso=None, on_source_result=None):
@@ -26,27 +26,31 @@ def recolectar(fuentes, terminos=None, headless=True, modo="rapida", progreso=No
 
     playwright = None
     browser = None
+    browser_unavailable = False
     try:
         for pos, nombre in enumerate(fuentes, 1):
             if progreso:
                 progreso({"tipo": "fuente", "fuente": nombre, "indice": pos, "total": len(fuentes), "mensaje": f"Consultando {nombre}…"})
 
-            modulo = importlib.import_module(f"jobsearch.scrapers.{FUENTES[nombre]}")
-            uses_browser = getattr(modulo, "USES_BROWSER", True)
-            if uses_browser and browser is None:
-                playwright = sync_playwright().start()
-                browser = playwright.chromium.launch(headless=headless, args=["--disable-dev-shm-usage", "--no-sandbox"])
-
             inicio = time.monotonic()
             try:
+                modulo = importlib.import_module(f"jobsearch.scrapers.{FUENTES[nombre]}")
+                uses_browser = getattr(modulo, "USES_BROWSER", True)
+                if uses_browser and browser is None and not browser_unavailable:
+                    try:
+                        playwright = sync_playwright().start()
+                        browser = playwright.chromium.launch(headless=headless, args=["--disable-dev-shm-usage"])
+                    except Exception as exc:
+                        browser_unavailable = True
+                        logger.warning("Chromium startup failed type=%s", type(exc).__name__)
+                if uses_browser and browser is None:
+                    raise RuntimeError("El navegador de búsqueda no está disponible.")
+
                 def sub(msg):
                     if progreso:
                         progreso({"tipo": "detalle", "fuente": nombre, "mensaje": msg})
                 target_browser = browser if uses_browser else None
-                try:
-                    resultado_bruto = modulo.buscar_ofertas(target_browser, terminos=terminos or None, modo=modo, progreso=sub)
-                except TypeError:
-                    resultado_bruto = modulo.buscar_ofertas(target_browser, terminos=terminos or None)
+                resultado_bruto = modulo.buscar_ofertas(target_browser, terminos=terminos or None, modo=modo, progreso=sub)
 
                 if resultado_bruto is None:
                     resultado_bruto = []
@@ -61,14 +65,11 @@ def recolectar(fuentes, terminos=None, headless=True, modo="rapida", progreso=No
                     except Exception:
                         source_diag = {}
 
-                validas = [o for o in resultado_bruto if oferta_es_valida(o)]
+                validas = [o for o in resultado_bruto if o.get("link") and oferta_es_valida(o)]
                 resultado = [
                     o for o in validas
                     if es_relevante_perfil(o.get("titulo", ""), o.get("descripcion", ""), terminos)
                 ]
-                ofertas.extend(resultado)
-                if on_source_result:
-                    on_source_result(nombre, resultado)
 
                 enlaces = int(source_diag.get("links_found", raw_count) or 0)
                 extraidas = int(source_diag.get("offers_extracted", raw_count) or 0)
@@ -117,38 +118,43 @@ def recolectar(fuentes, terminos=None, headless=True, modo="rapida", progreso=No
                     "blocked": blocked,
                     "transport": source_diag.get("transport", "browser" if uses_browser else "http"),
                 }
-                estadisticas.append(stat)
-                if progreso:
-                    progreso({
-                        "tipo":"resultado_fuente",
-                        "fuente":nombre,
-                        "mensaje":f"{nombre}: {diagnostico}",
-                        "estadistica":stat
-                    })
             except Exception as exc:
-                error_text = str(exc) or type(exc).__name__
+                logger.warning("Portal search failed source=%s type=%s", nombre, type(exc).__name__)
+                blocked = isinstance(exc, PortalBlocked)
+                error_text = "No se pudo consultar el portal."
+                if blocked:
+                    error_text = "El portal restringió el acceso automatizado."
+                resultado = []
                 errores.append({"fuente": nombre, "error": error_text})
                 stat={
                     "fuente": nombre, "cantidad": 0,
                     "segundos": round(time.monotonic()-inicio, 1),
-                    "ok": False, "estado": "error",
-                    "diagnostico": f"Error del adaptador: {error_text[:160]}",
+                    "ok": False, "estado": "blocked" if blocked else "error",
+                    "diagnostico": error_text,
                     "raw_count": 0, "links_found": 0, "offers_extracted": 0,
                     "invalid_count": 0, "filtered_count": 0,
-                    "detail_errors": 0, "query_errors": 1, "blocked": False,
+                    "detail_errors": 0, "query_errors": 1, "blocked": blocked,
                 }
-                estadisticas.append(stat)
-                if progreso:
-                    progreso({"tipo":"resultado_fuente","fuente":nombre,"mensaje":f"{nombre}: error del adaptador","estadistica":stat})
+            if on_source_result and resultado:
+                on_source_result(nombre, resultado)
+            ofertas.extend(resultado)
+            estadisticas.append(stat)
+            if progreso:
+                progreso({
+                    "tipo": "resultado_fuente", "fuente": nombre,
+                    "mensaje": f"{nombre}: {stat['diagnostico']}", "estadistica": stat,
+                })
     finally:
-        if browser is not None:
-            browser.close()
-        if playwright is not None:
-            playwright.stop()
+        for cleanup in (browser.close if browser else None, playwright.stop if playwright else None):
+            if cleanup:
+                try:
+                    cleanup()
+                except Exception as exc:
+                    logger.warning("Browser cleanup failed type=%s", type(exc).__name__)
 
     vistos, salida = set(), []
     for oferta in ofertas:
-        key = (oferta.get("titulo", "").strip().lower(), oferta.get("empresa", "").strip().lower(), oferta.get("fuente", ""))
+        key = oferta["link"].split("#", 1)[0].strip()
         if key in vistos:
             continue
         vistos.add(key); salida.append(oferta)

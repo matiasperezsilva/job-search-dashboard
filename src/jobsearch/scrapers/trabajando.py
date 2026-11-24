@@ -186,6 +186,9 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
             _LAST_DIAGNOSTIC["query_errors"] += 1
             if progreso:
                 progreso(f"Trabajando.com · consulta omitida: {type(exc).__name__}")
+        if _LAST_DIAGNOSTIC["blocked"]:
+            page.close()
+            return []
 
     _LAST_DIAGNOSTIC["links_found"] = len(items)
     items.sort(key=lambda x: 0 if titulo_parece_relevante(x[1], terms) else 1)

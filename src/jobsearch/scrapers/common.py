@@ -105,10 +105,18 @@ def enlace_es_vacante_individual(oferta: dict) -> bool:
     link = (oferta.get("link") or "").lower()
     if not link:
         return True
+    from urllib.parse import urlsplit
+
+    try:
+        target = urlsplit(link)
+    except ValueError:
+        return False
+    if target.scheme != "https" or not target.hostname or target.username or target.password:
+        return False
     if fuente == "computrabajo":
-        return "/ofertas-de-trabajo/oferta-de-trabajo-de-" in link
+        return target.hostname == "cl.computrabajo.com" and target.path.startswith("/ofertas-de-trabajo/oferta-de-trabajo-de-")
     if fuente == "getonboard":
-        return bool(re.search(r"getonbrd\.(?:com|cl|com\.mx|com\.pe|com\.co|com\.ar)/(?:jobs|empleos)/[^/]+/[^/?#]+", link))
+        return bool(re.fullmatch(r"(?:www\.)?getonbrd\.(?:com|cl|com\.mx|com\.pe|com\.co|com\.ar)", target.hostname) and re.fullmatch(r"/(?:jobs|empleos)/[^/]+/[^/]+/?", target.path))
     return True
 
 

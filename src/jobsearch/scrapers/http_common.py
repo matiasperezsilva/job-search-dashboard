@@ -1,7 +1,7 @@
 import html as html_lib
 import json
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -16,10 +16,33 @@ SESSION.headers.update({
 })
 
 
+class PortalBlocked(RuntimeError):
+    pass
+
+
 def get_html(url: str, timeout: int = 10) -> str:
-    r = SESSION.get(url, timeout=timeout, allow_redirects=True)
-    r.raise_for_status()
-    return r.text
+    origin = urlsplit(url).hostname
+    for _ in range(4):
+        with SESSION.get(url, timeout=timeout, allow_redirects=False, stream=True) as response:
+            if response.is_redirect:
+                url = urljoin(url, response.headers["Location"])
+                target = urlsplit(url)
+                if target.scheme != "https" or target.hostname != origin or target.username or target.password:
+                    raise ValueError("El portal redirigió fuera de su origen.")
+                continue
+            if response.status_code in {403, 429}:
+                raise PortalBlocked()
+            response.raise_for_status()
+            data = bytearray()
+            for chunk in response.iter_content(chunk_size=65536):
+                data.extend(chunk)
+                if len(data) > 12 * 1024 * 1024:
+                    raise ValueError("La respuesta del portal supera el límite de lectura.")
+            text = data.decode(response.encoding or "utf-8", errors="replace")
+            if re.search(r"<title>[^<]*(?:just a moment|access denied|captcha|verificaci[oó]n de seguridad)", text[:8000], re.I):
+                raise PortalBlocked()
+            return text
+    raise ValueError("El portal devolvió demasiadas redirecciones.")
 
 
 def soup(url: str, timeout: int = 10) -> BeautifulSoup:

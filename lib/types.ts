@@ -45,6 +45,7 @@ export type Job = {
   is_old?: boolean;
   duplicate_sources?: string[];
   duplicate_count?: number;
+  source_snapshot_expired?: boolean;
 };
 
 export type DashboardData = {
@@ -63,6 +64,7 @@ export type ProfileData = {
     resumen?: {
       areas_detectadas?: string[];
       skills_detectadas?: string[];
+      certificaciones_detectadas?: string[];
       terminos_busqueda?: string[];
       roles_objetivo?: string[];
       seniority_estimado?: string;

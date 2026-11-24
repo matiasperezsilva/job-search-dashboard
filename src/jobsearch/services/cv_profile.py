@@ -3,8 +3,6 @@ from io import BytesIO
 import json, re
 from pathlib import Path
 from datetime import date
-from pypdf import PdfReader
-from docx import Document
 
 # Taxonomía deliberadamente transversal. No pretende adivinar una profesión por una
 # sola palabra: combina títulos/funciones + competencias y deja los roles editables.
@@ -91,9 +89,30 @@ ADVANCED_ENGLISH = ["english c1", "inglés c1", "advanced english", "inglés ava
 def extraer_texto_cv(nombre: str, contenido: bytes) -> str:
     ext = Path(nombre).suffix.lower()
     if ext == ".pdf":
-        reader = PdfReader(BytesIO(contenido)); return "\n".join((p.extract_text() or "") for p in reader.pages).strip()
+        from pypdf import PdfReader
+        from pypdf.errors import PdfReadError
+
+        try:
+            reader = PdfReader(BytesIO(contenido))
+            if reader.is_encrypted or len(reader.pages) > 30:
+                raise ValueError("Usa un PDF sin contraseña y de hasta 30 páginas.")
+            return "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+        except PdfReadError as exc:
+            raise ValueError("No se pudo leer el archivo PDF.") from exc
     if ext == ".docx":
-        doc = Document(BytesIO(contenido)); return "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
+        from zipfile import BadZipFile, ZipFile
+        from docx import Document
+        from docx.opc.exceptions import PackageNotFoundError
+        from lxml.etree import XMLSyntaxError
+
+        try:
+            with ZipFile(BytesIO(contenido)) as archive:
+                if sum(entry.file_size for entry in archive.infolist()) > 24 * 1024 * 1024:
+                    raise ValueError("El contenido descomprimido del DOCX supera el límite permitido.")
+            doc = Document(BytesIO(contenido))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
+        except (BadZipFile, PackageNotFoundError, KeyError, XMLSyntaxError) as exc:
+            raise ValueError("No se pudo leer el archivo DOCX.") from exc
     if ext in {".txt", ".md"}: return contenido.decode("utf-8", errors="replace").strip()
     raise ValueError("Formato no soportado. Usa PDF, DOCX o TXT.")
 
@@ -287,13 +306,20 @@ def construir_perfil_desde_texto(texto: str) -> dict:
         for score, area, role_hits, skill_hits in scored[:5]:
             cfg = AREA_RULES[area]
             peso = round(max(.75, min(1.30, .85 + (score / max(top_score, 1)) * .35)), 2)
-            areas[area] = {"titulo": cfg["roles"], "skills": cfg["skills"], "peso": peso, "nivel": _nivel(limpio)}
+            areas[area] = {"titulo": cfg["roles"], "skills": skill_hits, "peso": peso, "nivel": _nivel(limpio)}
             # Prioriza cargos realmente presentes; completa con variantes del área solo cuando hay evidencia fuerte.
             roles.extend(role_hits)
             if score >= 6: roles.extend(cfg["roles"][:4])
         areas_detectadas = [x[1] for x in scored[:5]]
 
     skills = [s for s in GENERIC_SKILLS if _contiene(limpio, s)]
+    certifications = list(dict.fromkeys(
+        line.strip(" \t•-–") for line in texto.splitlines()
+        if re.search(r"\b(?:certified|certificación|certificacion|certificado|certificada|credencial)\b", line, re.I)
+        and 8 <= len(line.strip()) <= 180
+        and len(line.split()) >= 2
+        and not re.search(r"\b(?:en curso|en preparación|preparando|previst[ao]|expirad[ao]|vencid[ao])\b", line, re.I)
+    ))[:12]
     roles = list(dict.fromkeys(r.strip() for r in roles if r.strip()))[:16]
     # Si no se detectaron títulos, usa el nombre del área como búsqueda solo como fallback editable.
     if not roles and areas_detectadas != ["Perfil general"]:
@@ -305,6 +331,7 @@ def construir_perfil_desde_texto(texto: str) -> dict:
         "resumen": {
             "areas_detectadas": areas_detectadas,
             "skills_detectadas": skills[:40],
+            "certificaciones_detectadas": certifications,
             "roles_objetivo": roles,
             "terminos_busqueda": roles,  # compatibilidad con el resto de la app
             "seniority_estimado": _nivel(limpio),

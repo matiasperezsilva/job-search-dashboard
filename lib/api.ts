@@ -15,11 +15,11 @@ export async function api<T>(path: string, token: string, init: RequestInit = {}
   try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
   if (!response.ok) {
     const detail = data.detail || data.message;
-    if (detail) throw new Error(detail);
+    if (typeof detail === "string" && detail) throw new Error(detail);
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       throw new Error(`El servidor no pudo responder (${response.status}). Puede estar reiniciándose o sin recursos.`);
     }
-    throw new Error(`La solicitud falló (${response.status})${raw ? `: ${raw.slice(0, 180)}` : "."}`);
+    throw new Error(`La solicitud falló (${response.status}).`);
   }
   return data as T;
 }

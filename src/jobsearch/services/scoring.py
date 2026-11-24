@@ -225,14 +225,24 @@ def evaluar_oferta(oferta, perfil):
         }
 
     candidatos = []
-    for area, cfg in (perfil.get("areas") or {}).items():
+    resumen = perfil.get("resumen") or {}
+    skills_detectadas = resumen.get("skills_detectadas")
+    areas = dict(perfil.get("areas") or {})
+    if resumen.get("cargos_configurados"):
+        areas["Cargos objetivo"] = {
+            "titulo": resumen["cargos_configurados"], "skills": skills_detectadas or [],
+            "nivel": resumen.get("seniority_estimado", "no especificado"),
+        }
+    for area, cfg in areas.items():
         roles = cfg.get("titulo", [])
         skills = cfg.get("skills", [])
+        if isinstance(skills_detectadas, list):
+            skills = [skill for skill in skills if skill in skills_detectadas]
         hits_role = [x for x in roles if _contains(titulo, x)]
         hits_skill = [x for x in skills if _contains(texto, x)]
 
         # Un skill aislado nunca convierte un cargo ajeno en buen match.
-        if not hits_role and len(set(hits_skill)) < 3:
+        if not hits_role and (area == "Cargos objetivo" or len(set(hits_skill)) < 3):
             continue
 
         role_base = 52 if hits_role else 24

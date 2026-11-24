@@ -11,7 +11,9 @@ export async function GET() {
     if (!response.ok) {
       return NextResponse.json({ status: "degraded", backend: false }, { status: 503 });
     }
-    return NextResponse.json({ status: "ok", frontend: true, backend: true }, { status: 200 });
+    const commit = process.env.RENDER_GIT_COMMIT;
+    const revision = commit && /^[a-f0-9]{40}$/.test(commit) ? commit.slice(0, 12) : undefined;
+    return NextResponse.json({ status: "ok", frontend: true, backend: true, revision }, { status: 200 });
   } catch {
     return NextResponse.json({ status: "degraded", backend: false }, { status: 503 });
   }

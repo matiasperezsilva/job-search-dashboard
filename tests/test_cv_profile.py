@@ -6,6 +6,14 @@ import unittest
 from jobsearch.services.cv_profile import construir_perfil_desde_texto
 
 
+def test_muestra_certificacion_explicita_y_omite_preparacion():
+    perfil = construir_perfil_desde_texto(
+        "Ingeniero en Informática\nAWS Certified Cloud Practitioner\n"
+        "Preparando certificación AWS Solutions Architect\nExperiencia en Linux y SQL"
+    )
+    assert perfil["resumen"]["certificaciones_detectadas"] == ["AWS Certified Cloud Practitioner"]
+
+
 class CVProfileTests(unittest.TestCase):
     def test_cv_qa_cloud_generates_relevant_terms(self):
         texto = """

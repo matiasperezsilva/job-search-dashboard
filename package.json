@@ -1,6 +1,6 @@
 {
   "name": "rolvora",
-  "version": "5.7.11",
+  "version": "5.8.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,9 +10,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",
-    "next": "16.3.3",
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "next": "16.4.5",
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
