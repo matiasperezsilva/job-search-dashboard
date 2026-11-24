@@ -1,3 +1,8 @@
+## 5.8.2
+
+- Los mínimos obligatorios se comparan con la experiencia acreditada para el cargo, área o tecnología. Se excluyen del listado principal los requisitos obligatorios incumplidos.
+- Se agrega el filtro opcional para revisar estas ofertas y se recalculan los calces guardados con el CV existente.
+
 ## 5.8.1
 
 - Se adapta BNE al buscador público y a las rutas vigentes de sus ofertas.
