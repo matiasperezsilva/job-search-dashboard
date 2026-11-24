@@ -2,7 +2,7 @@
 
 La base recuperada es `main` en `54fb6517aabd1446ba26ca5bd436cc7563cdc7ce`. Se verificaron los 76 archivos y el árbol de Git. `package.json` declara v5.7.11. La descarga del ZIP histórico falló y el SHA del contenedor público sigue por confirmar. La ejecución histórica de GitHub Actions corresponde al commit de base.
 
-Pasaron 47 pruebas de lógica ejecutables con la biblioteca estándar de Python y el análisis sintáctico de 9 archivos TypeScript/TSX. En PostgreSQL 17 local se aplicaron las cuatro migraciones con cuentas de ensayo y se comprobó el aislamiento por RLS y la unicidad de una corrida activa. La suite completa de pytest, la compilación de Next.js, las auditorías del grafo de dependencias y las capturas de la nueva rama quedan pendientes de un entorno con acceso a los registros de paquetes.
+La versión 5.8.0 pasó 80 pruebas, la comprobación de tipos, la compilación de Next.js y las auditorías de npm y Python. La migración 004 se aplicó y su índice se verificó en Supabase de producción. La prueba autenticada en Render encontró y guardó 17 vacantes relevantes de Cloud a través de Get on Board, Computrabajo y ChileTrabajos. También se verificó la persistencia de un favorito, un seguimiento y un borrador de carta.
 
 ## Búsqueda
 
@@ -18,7 +18,7 @@ El inicio consultaba tres operaciones de Supabase sin traducir los errores de la
 | ChileTrabajos | Búsqueda y fichas públicas | La portada pública fue accesible. Se debe validar el flujo de extracción desde Render. |
 | Trabajando.com | Enlace de búsqueda manual | Sus condiciones restringen el uso de herramientas de búsqueda automatizadas. |
 | Laborum | Enlace de búsqueda manual | El listado público fue accesible en navegador. Se requiere confirmar autorización para el endpoint histórico de su frontend antes de reactivar ese adaptador. |
-| BNE | Búsqueda pública con enlace manual de respaldo | La ruta histórica mostró respuestas inconsistentes. Se debe confirmar desde Render la obtención de fichas y enlaces oficiales. |
+| BNE | Búsqueda pública con enlace manual de respaldo | La ruta histórica dejó de servir el buscador. La versión 5.8.1 utiliza `/buscar-empleo` y admite enlaces públicos `/ofertas/<id>`. |
 
 [Documentación de Get on Board](https://www.getonbrd.com/api-doc) · [Condiciones de LinkedIn](https://www.linkedin.com/legal/user-agreement) · [Condiciones de Trabajando.com](https://www.trabajando.cl/terminos-y-condiciones-de-servicio) · [Información de BNE en ChileAtiende](https://www.chileatiende.gob.cl/fichas/5072)
 

@@ -52,6 +52,14 @@ def test_bne_offer_link_pattern_supports_internal_and_external():
     assert re.search(r"/(?:oferta|ofertaEmpleoExterno)/[^/?#]+", "https://www.bne.cl/ofertaEmpleoExterno/8360362")
 
 
+def test_bne_current_search_links_use_public_offer_path():
+    assert bne.SEARCH_URL == "https://bne.gob.cl/buscar-empleo"
+    assert bne._offer_url("/ofertas/1604273") == "https://bne.gob.cl/ofertas/1604273"
+    assert bne._offer_url("https://www.bne.cl/ofertaEmpleoExterno/8360362")
+    assert not bne._offer_url("/ofertas")
+    assert not bne._offer_url("https://example.com/ofertas/1604273")
+
+
 def test_get_on_board_feed_uses_original_job_url():
     xml = """<jobs><job><title>Cloud Support</title><company>Acme</company>
       <description><![CDATA[<p>Experiencia con Linux</p>]]></description>

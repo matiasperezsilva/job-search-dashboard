@@ -1,3 +1,7 @@
+## 5.8.1
+
+- Se adapta BNE al buscador público y a las rutas vigentes de sus ofertas.
+
 ## 5.8.0
 
 - Se registra el contexto del fallo al iniciar búsquedas y se aíslan fallos de Chromium, fuentes y almacenamiento.
