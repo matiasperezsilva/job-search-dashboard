@@ -1,12 +1,7 @@
-"""BNE: búsqueda pública con Playwright y fallback al listado.
-
-La BNE mantiene /ofertas?mostrar=empleo y fichas /oferta/<id>. El formulario
-ha cambiado de estructura varias veces, por eso no dependemos de un único selector:
-detectamos el campo visible, probamos Enter/botón y aceptamos ofertas internas y externas.
-"""
+"""Búsqueda y fichas públicas de la Bolsa Nacional de Empleo."""
 
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -14,8 +9,9 @@ from .common import nueva_pagina, titulo_parece_relevante
 
 USES_BROWSER = True
 NOMBRE = "BNE"
-BASE_URL = "https://www.bne.cl"
-SEARCH_URL = f"{BASE_URL}/ofertas?mostrar=empleo"
+BASE_URL = "https://bne.gob.cl"
+SEARCH_URL = f"{BASE_URL}/buscar-empleo"
+OFFER_SELECTOR = 'a[href*="/ofertas/"], a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]'
 _LAST_DIAGNOSTIC = {}
 
 
@@ -31,93 +27,46 @@ def _blocked(text: str) -> bool:
     ))
 
 
+def _offer_url(href: str) -> str:
+    link = urljoin(BASE_URL, href).split("?", 1)[0].split("#", 1)[0]
+    target = urlsplit(link)
+    if target.scheme != "https" or target.netloc not in {"bne.gob.cl", "www.bne.gob.cl", "www.bne.cl"}:
+        return ""
+    return link if re.fullmatch(r"(?:/ofertas/\d+|/(?:oferta|ofertaEmpleoExterno)/[\w-]+)/?", target.path) else ""
+
+
 def _offer_links(page):
-    anchors = page.locator('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]')
+    anchors = page.get_by_role("region", name="Resultados de búsqueda").locator(OFFER_SELECTOR)
     out, seen = [], set()
-    for i in range(min(anchors.count(), 500)):
-        a = anchors.nth(i)
+    for index in range(min(anchors.count(), 30)):
+        anchor = anchors.nth(index)
         try:
-            href = a.get_attribute("href") or ""
-            text = a.inner_text(timeout=700).strip()
+            link = _offer_url(anchor.get_attribute("href") or "")
+            title = anchor.inner_text(timeout=700).strip()
         except Exception:
             continue
-        link = urljoin(BASE_URL, href).split("?")[0].split("#")[0]
-        if not re.search(r"/(?:oferta|ofertaEmpleoExterno)/[^/?#]+", link):
-            continue
-        if link in seen:
-            continue
-        seen.add(link)
-        out.append((link, text))
+        if link and link not in seen:
+            seen.add(link)
+            out.append((link, title))
     return out
-
-def _visible_search_input(page):
-    selectors = [
-        'input[placeholder*="profesi" i]',
-        'input[placeholder*="empresa" i]',
-        'input[placeholder*="palabra" i]',
-        'input[type="search"]',
-        'input[type="text"]',
-    ]
-    for selector in selectors:
-        loc = page.locator(selector)
-        for i in range(min(loc.count(), 20)):
-            candidate = loc.nth(i)
-            try:
-                if candidate.is_visible():
-                    placeholder = (candidate.get_attribute("placeholder") or "").lower()
-                    # Evitar inputs de filtros región/ocupación si hay uno más específico.
-                    if any(x in placeholder for x in ("región", "region", "ocupación", "ocupacion")):
-                        continue
-                    return candidate
-            except Exception:
-                continue
-    return None
 
 
 def _buscar_links_por_termino(page, termino):
-    page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
-    page.wait_for_timeout(500)
-    body = page.locator("body").inner_text(timeout=3000) if page.locator("body").count() else ""
-    if _blocked(body):
+    response = page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
+    if response and response.status in {403, 429}:
         _LAST_DIAGNOSTIC["blocked"] = True
         return []
-
-    campo = _visible_search_input(page)
-    if campo is None:
-        raise RuntimeError("BNE cambió el campo principal de búsqueda")
-
-    campo.fill(termino)
-    submitted = False
-    try:
-        campo.press("Enter", timeout=2000)
-        submitted = True
-    except Exception:
-        pass
-
-    try:
-        page.wait_for_selector('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]', timeout=4500)
-    except Exception:
-        if submitted:
-            # Enter puede no enviar el formulario. Intentamos el botón visible.
-            pass
-
-    links = _offer_links(page)
-    if not links:
-        buttons = page.locator('button:has-text("BUSCAR"), button:has-text("Buscar"), input[type="submit"]')
-        for i in range(min(buttons.count(), 10)):
-            try:
-                if buttons.nth(i).is_visible():
-                    buttons.nth(i).click(timeout=2500)
-                    break
-            except Exception:
-                continue
-        try:
-            page.wait_for_selector('a[href*="/oferta/"], a[href*="/ofertaEmpleoExterno/"]', timeout=6000)
-        except Exception:
-            pass
-        links = _offer_links(page)
-
-    return links
+    if _blocked(page.locator("body").inner_text(timeout=3000)):
+        _LAST_DIAGNOSTIC["blocked"] = True
+        return []
+    page.locator("#profesion").fill(termino, timeout=6000)
+    page.get_by_role("button", name="Buscar", exact=True).click(timeout=6000)
+    results = page.get_by_role("region", name="Resultados de búsqueda")
+    results.get_by_role("status", name=re.compile("cargando", re.I)).wait_for(state="hidden", timeout=10000)
+    if _blocked(results.inner_text(timeout=3000)):
+        _LAST_DIAGNOSTIC["blocked"] = True
+        return []
+    return _offer_links(page)
 
 
 def _text_after_label(doc, label: str):
@@ -127,11 +76,14 @@ def _text_after_label(doc, label: str):
 
 
 def _extraer_oferta(page, link):
-    page.goto(link, wait_until="domcontentloaded", timeout=15000)
-    try:
+    response = page.goto(link, wait_until="domcontentloaded", timeout=15000)
+    if response and response.status in {403, 429}:
+        _LAST_DIAGNOSTIC["blocked"] = True
+        raise ValueError("BNE restringió el acceso a la ficha")
+    if urlsplit(link).path.startswith("/ofertas/"):
+        page.get_by_role("region", name="Descripción de la oferta").wait_for(timeout=7000)
+    else:
         page.wait_for_selector("#nombreOferta, h1", timeout=5000)
-    except Exception:
-        pass
 
     html = page.content()
     doc = BeautifulSoup(html, "html.parser")
@@ -209,7 +161,8 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
     if not cards and not _LAST_DIAGNOSTIC["blocked"]:
         try:
             page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
-            page.wait_for_timeout(700)
+            results = page.get_by_role("region", name="Resultados de búsqueda")
+            results.get_by_role("status", name=re.compile("cargando", re.I)).wait_for(state="hidden", timeout=10000)
             cards = _offer_links(page)
             if cards:
                 _LAST_DIAGNOSTIC["transport"] = "public-list-fallback"
@@ -240,6 +193,8 @@ def buscar_ofertas(browser, terminos=None, modo="rapida", progreso=None):
             _LAST_DIAGNOSTIC["offers_extracted"] += 1
         except Exception:
             _LAST_DIAGNOSTIC["detail_errors"] += 1
+            if _LAST_DIAGNOSTIC["blocked"]:
+                break
 
     page.close()
     return offers
