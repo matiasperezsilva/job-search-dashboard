@@ -259,7 +259,7 @@ function SearchProgress({run}:{run:SearchRun}){
 
 
 function SearchResult({result,onView}:{result:any;onView:()=>void}){
-  return <section className="panel result-panel"><div className="result-top"><div><span className="success-icon">✓</span><div><h3>Búsqueda finalizada</h3><p>{result.found} vacantes relevantes · {result.new} nuevas guardadas</p></div></div><button className="btn dark" onClick={onView}>Ver oportunidades <ArrowRightIcon size={16}/></button></div><div className="stats-strip">{(result.stats||[]).map((stat:any)=><SourceDiagnosticCard key={stat.fuente} stat={stat}/>)}</div>{(result.errors||[]).length>0&&<div className="source-errors">{result.errors.map((e:any)=><span key={e.fuente}>{e.fuente}: {e.error}</span>)}</div>}</section>
+  return <section className="panel result-panel"><div className="result-top"><div><span className="success-icon">✓</span><div><h3>Búsqueda finalizada</h3><p>{result.found} vacantes relevantes · {result.new} nuevas guardadas{Boolean(result.outside_experience)&&` · ${result.outside_experience} fuera de experiencia`}</p></div></div><button className="btn dark" onClick={onView}>Ver oportunidades <ArrowRightIcon size={16}/></button></div><div className="stats-strip">{(result.stats||[]).map((stat:any)=><SourceDiagnosticCard key={stat.fuente} stat={stat}/>)}</div>{(result.errors||[]).length>0&&<div className="source-errors">{result.errors.map((e:any)=><span key={e.fuente}>{e.fuente}: {e.error}</span>)}</div>}</section>
 }
 
 function sourceProgressText(state:any){
@@ -296,6 +296,7 @@ function JobsPage({ token }: { token:string }) {
   const [scope,setScope]=useState<"active"|"favorites"|"hidden">("active");
   const [sort,setSort]=useState<"score"|"recent"|"found">("score");
   const [includeOld,setIncludeOld]=useState(false);
+  const [includeExperienceGaps,setIncludeExperienceGaps]=useState(false);
   const [selected,setSelected]=useState<Job|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
@@ -305,12 +306,12 @@ function JobsPage({ token }: { token:string }) {
     setLoading(true);
     const effectiveMin=scope==="active"?min:0;
     const flags=scope==="favorites"?"&favorite_only=true":scope==="hidden"?"&only_hidden=true&include_hidden=true":"";
-    api<{items:Job[]}>(`/jobs?min_score=${effectiveMin}&sort=${sort}&include_old=${includeOld}${flags}${source?`&source=${encodeURIComponent(source)}`:""}${q?`&q=${encodeURIComponent(q)}`:""}`,token)
+    api<{items:Job[]}>(`/jobs?min_score=${effectiveMin}&sort=${sort}&include_old=${includeOld}&include_experience_gaps=${includeExperienceGaps || scope!=="active"}${flags}${source?`&source=${encodeURIComponent(source)}`:""}${q?`&q=${encodeURIComponent(q)}`:""}`,token)
       .then(r=>{setJobs(r.items);if(selected){setSelected(r.items.find(x=>x.id===selected.id)||null)}})
       .catch(e=>setError(e.message))
       .finally(()=>setLoading(false));
   };
-  useEffect(()=>{const t=setTimeout(load,200);return()=>clearTimeout(t)},[token,min,source,q,scope,sort,includeOld]);
+  useEffect(()=>{const t=setTimeout(load,200);return()=>clearTimeout(t)},[token,min,source,q,scope,sort,includeOld,includeExperienceGaps]);
 
   const reevaluate=async()=>{setReeval(true);setError("");try{await api("/jobs/reevaluate",token,{method:"POST"});load();}catch(e){setError(e instanceof Error?e.message:"Error");}finally{setReeval(false)}};
   const updateFlags=async(job:Job, values:{favorite?:boolean;hidden?:boolean})=>{
@@ -333,6 +334,7 @@ function JobsPage({ token }: { token:string }) {
       {scope==="active"&&<label>Calce mínimo<select value={min} onChange={e=>setMin(Number(e.target.value))}>{[0,30,40,50,60,70,80,90].map(v=><option key={v} value={v}>{v}+</option>)}</select></label>}
       <label>Fuente<select value={source} onChange={e=>setSource(e.target.value)}><option value="">Todas</option>{SOURCES.map(s=><option key={s}>{s}</option>)}</select></label>
       <label>Orden<select value={sort} onChange={e=>setSort(e.target.value as "score"|"recent"|"found")}><option value="score">Mejor calce</option><option value="recent">Más recientes</option><option value="found">Recién encontradas</option></select></label><label className="toggle-filter"><input type="checkbox" checked={includeOld} onChange={e=>setIncludeOld(e.target.checked)}/><span>Incluir antiguas</span></label>
+      {scope==="active"&&<label className="toggle-filter"><input type="checkbox" checked={includeExperienceGaps} onChange={e=>setIncludeExperienceGaps(e.target.checked)}/><span>Incluir ofertas fuera de mi experiencia</span></label>}
       <label className="search-field">Buscar<input value={q} onChange={e=>setQ(e.target.value)} placeholder="Cargo o empresa…"/></label>
     </div>
     {scope==="hidden"&&<div className="notice subtle curation-note">Las ofertas ocultas no vuelven al listado principal aunque aparezcan de nuevo en una búsqueda. Puedes restaurarlas cuando quieras.</div>}
@@ -342,7 +344,7 @@ function JobsPage({ token }: { token:string }) {
 
 function JobCard({job,selected,onSelect,onFavorite,onHide}:{job:Job;selected:boolean;onSelect:()=>void;onFavorite:()=>void;onHide:()=>void}){
   return <article className={`job-card ${selected?"selected":""} ${job.hidden?"hidden-job":""}`} onClick={onSelect}>
-    <div className="job-card-main"><div className="company-avatar">{(job.empresa||"?").slice(0,1).toUpperCase()}</div><div className="job-copy"><div className="job-title-line"><h3>{job.titulo}</h3>{job.favorite&&<span className="favorite-mark" title="Favorita">★</span>}</div><p>{job.empresa||"Empresa no informada"}</p><div className="job-meta-line"><span>{jobDateLabel(job)}</span>{job.duplicate_count&&job.duplicate_count>1&&<span className="duplicate-note">También encontrada en {job.duplicate_count-1} fuente{job.duplicate_count-1===1?"":"s"} más</span>}</div><div className="badges"><Badge text={job.area||"Sin clasificar"}/><Badge text={displaySource(job.fuente)||"Fuente"} tone="blue"/>{job.duplicate_sources&&job.duplicate_sources.length>1&&<Badge text={`${job.duplicate_sources.length} portales`} tone="gray"/>}{job.is_old&&<Badge text="Antigua" tone="gray"/>}{job.modalidad&&<Badge text={job.modalidad}/>}<Badge text={job.estado||"Sin gestionar"} tone="gray"/></div></div></div>
+    <div className="job-card-main"><div className="company-avatar">{(job.empresa||"?").slice(0,1).toUpperCase()}</div><div className="job-copy"><div className="job-title-line"><h3>{job.titulo}</h3>{job.favorite&&<span className="favorite-mark" title="Favorita">★</span>}</div><p>{job.empresa||"Empresa no informada"}</p><div className="job-meta-line"><span>{jobDateLabel(job)}</span>{job.duplicate_count&&job.duplicate_count>1&&<span className="duplicate-note">También encontrada en {job.duplicate_count-1} fuente{job.duplicate_count-1===1?"":"s"} más</span>}</div><div className="badges"><Badge text={job.area||"Sin clasificar"}/><Badge text={displaySource(job.fuente)||"Fuente"} tone="blue"/>{job.duplicate_sources&&job.duplicate_sources.length>1&&<Badge text={`${job.duplicate_sources.length} portales`} tone="gray"/>}{job.experience_blocked&&<Badge text="Experiencia obligatoria insuficiente" tone="gray"/>}{job.is_old&&<Badge text="Antigua" tone="gray"/>}{job.modalidad&&<Badge text={job.modalidad}/>}<Badge text={job.estado||"Sin gestionar"} tone="gray"/></div></div></div>
     <div className="job-card-side"><div className={`score ${job.puntaje>=70?"high":job.puntaje>=50?"mid":"low"}`}><b>{job.puntaje}</b><span>calce</span></div><div className="card-actions"><button className={`icon-action ${job.favorite?"active":""}`} title={job.favorite?"Quitar de favoritas":"Marcar favorita"} onClick={e=>{e.stopPropagation();onFavorite()}}>{job.favorite?"★":"☆"}</button><button className="icon-action" title={job.hidden?"Restaurar oportunidad":"Ocultar oportunidad"} onClick={e=>{e.stopPropagation();onHide()}}>{job.hidden?"↩":"×"}</button></div></div>
   </article>
 }
@@ -485,7 +487,7 @@ function ApplicationsPage({token}:{token:string}){
   const load=async()=>{
     setLoading(true);
     try{
-      const r=await api<{items:Job[]}>(`/jobs?min_score=0&include_hidden=true&include_old=true&deduplicate=false${state?`&state=${encodeURIComponent(state)}`:""}`,token);
+      const r=await api<{items:Job[]}>(`/jobs?min_score=0&include_hidden=true&include_old=true&include_experience_gaps=true&deduplicate=false${state?`&state=${encodeURIComponent(state)}`:""}`,token);
       setJobs(r.items.filter(j=>j.estado&&j.estado!=="Sin gestionar"));
     }finally{setLoading(false)}
   };
