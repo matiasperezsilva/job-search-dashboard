@@ -20,6 +20,7 @@ class ConfigGemini:
     api_key: str
     model: str = "gemini-3.5-flash-lite"
     timeout: int = 60
+    allow_cv_text: bool = False
 
 
 def config_gemini_desde_entorno() -> ConfigGemini | None:
@@ -27,7 +28,8 @@ def config_gemini_desde_entorno() -> ConfigGemini | None:
     if not key:
         return None
     model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
-    return ConfigGemini(api_key=key, model=model)
+    allow_cv_text = os.getenv("GEMINI_ALLOW_CV_TEXT", "").strip().lower() == "true"
+    return ConfigGemini(api_key=key, model=model, allow_cv_text=allow_cv_text)
 
 
 def _sanitizar_cv_para_ia(texto: str) -> str:
@@ -87,6 +89,10 @@ Coincidencias detectadas automáticamente: {', '.join(coincidencias) or 'ninguna
 
 Redacta una carta de presentación de 180 a 260 palabras. Debe explicar el interés por el cargo y conectar la experiencia real del CV con la oferta sin inventar información. Evita repetir literalmente el CV."""
 
+    if not config.allow_cv_text:
+        system = "Escribe una sola frase breve en español para cerrar una carta de postulación."
+        user = "Agradece la revisión de la postulación y expresa disponibilidad para conversar. Devuelve solo la frase, sin nombres, cargos, empresas, habilidades ni afirmaciones sobre el candidato."
+
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{parse.quote(config.model, safe='-_.')}:generateContent"
     payload = {
         "systemInstruction": {"parts": [{"text": system}]},
@@ -106,16 +112,22 @@ Redacta una carta de presentación de 180 a 260 palabras. Debe explicar el inter
         with request.urlopen(req, timeout=config.timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except error.HTTPError as exc:
-        detalle = exc.read().decode("utf-8", errors="replace")[:700]
         if exc.code == 429:
             raise RuntimeError("Gemini alcanzó temporalmente su límite de uso. Intenta nuevamente en unos minutos.") from exc
         if exc.code in {401, 403}:
             raise RuntimeError("La API key de Gemini no es válida o no tiene acceso al modelo configurado.") from exc
-        raise RuntimeError(f"Gemini devolvió HTTP {exc.code}: {detalle}") from exc
+        raise RuntimeError(f"Gemini devolvió HTTP {exc.code}.") from exc
     except error.URLError as exc:
-        raise RuntimeError(f"No fue posible conectar con Gemini: {exc.reason}") from exc
+        raise RuntimeError("No fue posible conectar con Gemini.") from exc
 
-    return _extraer_contenido_gemini(data)
+    generated = _extraer_contenido_gemini(data)
+    if config.allow_cv_text:
+        return generated
+    local = generar_borrador_local(oferta, perfil).rsplit("\n\n", 2)[0]
+    closing = " ".join(generated.split())
+    if len(closing) > 200 or not re.fullmatch(r"[\w\s,.;¡!¿?]+", closing):
+        return generar_borrador_local(oferta, perfil)
+    return f"{local}\n\n{closing}\n\nSaludos cordiales."
 
 
 def _texto(oferta: dict) -> str:
@@ -130,10 +142,12 @@ def coincidencias_cv_oferta(perfil: dict, oferta: dict, limite: int = 8) -> list
     candidatas: list[str] = []
 
     resumen = perfil.get("resumen", {})
-    candidatas.extend(resumen.get("skills_detectadas", []))
-
-    for cfg in perfil.get("areas", {}).values():
-        candidatas.extend(cfg.get("skills", []))
+    detected = resumen.get("skills_detectadas")
+    if isinstance(detected, list):
+        candidatas.extend(detected)
+    else:
+        for cfg in perfil.get("areas", {}).values():
+            candidatas.extend(cfg.get("skills", []))
 
     vistas = set()
     coincidencias = []
@@ -143,7 +157,7 @@ def coincidencias_cv_oferta(perfil: dict, oferta: dict, limite: int = 8) -> list
         if not normal or key in vistas:
             continue
         vistas.add(key)
-        if key in texto:
+        if re.search(rf"(?<!\w){re.escape(key)}(?!\w)", texto):
             coincidencias.append(normal)
         if len(coincidencias) >= limite:
             break
