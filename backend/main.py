@@ -23,7 +23,7 @@ from jobsearch.services.profile_ai import enriquecer_perfil_con_gemini
 from jobsearch.services.letters import config_api_desde_entorno, config_gemini_desde_entorno, generar_borrador_local, generar_carta_gemini, generar_carta_inteligente
 from jobsearch.services.scoring import evaluar_oferta
 
-app = FastAPI(title="Rolvora API", version="5.8.1")
+app = FastAPI(title="Rolvora API", version="5.8.2")
 logger = logging.getLogger(__name__)
 
 
@@ -211,18 +211,32 @@ def _execute_search(ctx: UserContext, run_id: str, sources: list[str], terms: li
         row = r.profile()
         if not row:
             raise ValueError("Perfil activo ausente")
-        profile = row.get("profile_data") or {}
+        profile = r.matching_profile(row)
         new_count = 0
+        evaluations = {}
+
+        def eligibility(job, _profile):
+            key = id(job)
+            if key not in evaluations:
+                evaluations[key] = evaluar_oferta(job, profile)
+            return evaluations[key]
+
+        def blocked(result):
+            return bool((result.get("match_breakdown") or {}).get("experience_blocked"))
 
         def persist_source(_source, source_jobs):
             nonlocal new_count
-            relevant = [job for job in source_jobs if evaluar_oferta(job, profile)["puntaje"] >= 30]
-            if relevant:
-                new_count += r.save_jobs(relevant, profile, evaluar_oferta)
+            eligible = [job for job in source_jobs if eligibility(job, profile)["puntaje"] >= 30]
+            extras = [job for job in source_jobs if blocked(eligibility(job, profile))]
+            if eligible:
+                new_count += r.save_jobs(eligible, profile, eligibility)
+            if extras:
+                r.save_jobs(extras, profile, eligibility)
 
         jobs, errors, stats = recolectar(sources, terms, True, mode, progress, persist_source)
-        relevant = [j for j in jobs if evaluar_oferta(j, profile)["puntaje"] >= 30]
-        result = {"found": len(relevant), "new": new_count, "stats": stats, "errors": errors}
+        relevant = [job for job in jobs if eligibility(job, profile)["puntaje"] >= 30]
+        excluded = sum(blocked(eligibility(job, profile)) for job in jobs)
+        result = {"found": len(relevant), "new": new_count, "outside_experience": excluded, "stats": stats, "errors": errors}
         r.update_search_run(run_id, {"status": "completed", "result": result, "progress": {**progress_state, "message": "Búsqueda finalizada"}})
     except Exception as exc:
         logger.error("Search failed run=%s type=%s status=%s code=%s", run_id, type(exc).__name__, getattr(exc, "status", None), getattr(exc, "code", None))
@@ -286,12 +300,12 @@ def jobs(
     min_score: int = Query(40, ge=0, le=100), source: str | None = None,
     state: str | None = None, q: str | None = None, favorite_only: bool = False,
     include_hidden: bool = False, only_hidden: bool = False, sort: str = "score",
-    include_old: bool = False, deduplicate: bool = True,
+    include_old: bool = False, deduplicate: bool = True, include_experience_gaps: bool = False,
     r: Repository = Depends(repo),
 ):
     return {"items": r.jobs(
         min_score, source, state, q, favorite_only, include_hidden, only_hidden,
-        sort, include_old, deduplicate
+        sort, include_old, deduplicate, include_experience_gaps
     )}
 
 @app.post("/jobs/reevaluate")
@@ -299,7 +313,7 @@ def reevaluate(r: Repository = Depends(repo)):
     row = r.profile()
     if not row:
         raise HTTPException(400, "No hay currículum activo.")
-    return r.reevaluate(row.get("profile_data") or {}, evaluar_oferta)
+    return r.reevaluate(r.matching_profile(row), evaluar_oferta)
 
 @app.put("/jobs/{job_id}/flags")
 def update_job_flags(job_id: str, body: JobFlagsBody, r: Repository = Depends(repo)):

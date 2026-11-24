@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import unicodedata
 from datetime import datetime, timezone, timedelta
 from backend.supabase_rest import SupabaseRest, UserContext, now_iso
+from jobsearch.services.cv_profile import perfil_para_matching
+from jobsearch.services.scoring import evaluar_oferta
+
+logger = logging.getLogger(__name__)
+MATCH_REVISION = "5.8.2"
 
 
 def job_id(oferta):
@@ -149,6 +155,51 @@ class Repository:
         })
         return rows[0] if rows else run
 
+    @staticmethod
+    def _match_fields(job, profile, evaluator, revision):
+        result = evaluator(job, profile)
+        return {
+            "puntaje": result["puntaje"], "area": result["area"], "razon": result["razon"],
+            "match_breakdown": {**(result.get("match_breakdown") or {}), "revision": revision},
+        }
+
+    @staticmethod
+    def match_revision(profile):
+        return profile.get("_match_revision") or MATCH_REVISION
+
+    def matching_profile(self, row):
+        profile = perfil_para_matching(row)
+        profile["_match_revision"] = f"{MATCH_REVISION}:{row.get('updated_at') or '-'}:{datetime.now(timezone.utc):%Y-%m}"
+        return profile
+
+    def _all_jobs(self, params):
+        rows = []
+        while True:
+            page = self.db.select("jobs", {**params, "limit": "200", "offset": str(len(rows))})
+            rows.extend(page)
+            if len(page) < 200:
+                return rows
+
+    def _refresh_matches(self, jobs, profile, evaluator, *, force=False):
+        updated = 0
+        revision = self.match_revision(profile)
+        for job in jobs:
+            if not force and (job.get("match_breakdown") or {}).get("revision") == revision:
+                continue
+            fields = self._match_fields(job, profile, evaluator, revision)
+            params = {"user_id": f"eq.{self.ctx.user_id}", "id": f"eq.{job['id']}"}
+            if job.get("last_seen"):
+                params["last_seen"] = f"eq.{job['last_seen']}"
+            try:
+                self.db.update("jobs", fields, params)
+            except RuntimeError:
+                if force:
+                    raise
+                logger.warning("No se pudo persistir el calce recalculado de una oferta.")
+            job.update(fields)
+            updated += 1
+        return updated
+
     def save_jobs(self, jobs: list[dict], profile: dict, evaluator):
         existing = self.db.select("jobs", {"select": "id,link,first_seen,favorite,hidden,hidden_at,published_at", "user_id": f"eq.{self.ctx.user_id}"})
         by_id = {r["id"]: r for r in existing}
@@ -158,13 +209,13 @@ class Repository:
             normalized_link = str(job.get("link") or "").split("#", 1)[0].strip().lower()
             previous = by_link.get(normalized_link) if normalized_link else None
             jid = previous.get("id") if previous else job_id(job)
-            ev = evaluator(job, profile)
+            fields = self._match_fields(job, profile, evaluator, self.match_revision(profile))
             row = {
                 "id": jid, "user_id": self.ctx.user_id,
                 "titulo": job.get("titulo", ""), "empresa": job.get("empresa", ""),
                 "descripcion": job.get("descripcion", ""), "modalidad": job.get("modalidad", ""),
                 "link": job.get("link", ""), "fuente": job.get("fuente", ""),
-                "puntaje": ev["puntaje"], "area": ev["area"], "razon": ev["razon"], "match_breakdown": ev.get("match_breakdown") or {},
+                **fields,
                 "published_at": job.get("published_at") or by_id.get(jid, {}).get("published_at") or None,
                 "favorite": bool(by_id.get(jid, {}).get("favorite", False)),
                 "hidden": bool(by_id.get(jid, {}).get("hidden", False)),
@@ -176,11 +227,10 @@ class Repository:
                 new_count += 1
         return new_count
 
-    def jobs(self, min_score=0, source=None, state=None, search=None, favorite_only=False, include_hidden=False, only_hidden=False, sort="score", include_old=False, deduplicate=True):
+    def jobs(self, min_score=0, source=None, state=None, search=None, favorite_only=False, include_hidden=False, only_hidden=False, sort="score", include_old=False, deduplicate=True, include_experience_gaps=False):
         params = {
             "select": "*", "user_id": f"eq.{self.ctx.user_id}",
-            "puntaje": f"gte.{int(min_score)}",
-            "order": "puntaje.desc,last_seen.desc",
+            "order": "id.asc",
         }
         if only_hidden:
             params["hidden"] = "eq.true"
@@ -190,7 +240,10 @@ class Repository:
             params["favorite"] = "eq.true"
         if source:
             params["fuente"] = f"eq.{source}"
-        jobs = self.db.select("jobs", params)
+        jobs = self._all_jobs(params)
+        row = self.profile()
+        if row:
+            self._refresh_matches(jobs, self.matching_profile(row), evaluar_oferta)
         apps = self.db.select("applications", {
             "select": "job_id,estado,notas", "user_id": f"eq.{self.ctx.user_id}"
         })
@@ -198,7 +251,13 @@ class Repository:
         out = []
         q = (search or "").lower().strip()
         for job in jobs:
+            blocked = bool((job.get("match_breakdown") or {}).get("experience_blocked"))
+            if blocked and not include_experience_gaps:
+                continue
+            if not blocked and int(job.get("puntaje") or 0) < min_score:
+                continue
             app = by_job.get(job["id"], {})
+            job["experience_blocked"] = blocked
             job["estado"] = app.get("estado", "Sin gestionar")
             job["notas"] = app.get("notas", "")
             if state and job["estado"] != state:
@@ -265,6 +324,8 @@ class Repository:
             out.sort(key=lambda j: j.get("first_seen") or "", reverse=True)
         else:
             out.sort(key=lambda j: (int(j.get("puntaje") or 0), j.get("published_at") or j.get("last_seen") or ""), reverse=True)
+        if include_experience_gaps:
+            out.sort(key=lambda job: job["experience_blocked"])
         return out
 
     def job(self, job_id_: str):
@@ -337,13 +398,6 @@ class Repository:
         }
 
     def reevaluate(self, profile: dict, evaluator):
-        rows = self.db.select("jobs", {"select": "*", "user_id": f"eq.{self.ctx.user_id}"})
-        discarded = 0
-        for job in rows:
-            ev = evaluator(job, profile)
-            self.db.update("jobs", {"puntaje": ev["puntaje"], "area": ev["area"], "razon": ev["razon"], "match_breakdown": ev.get("match_breakdown") or {}}, {
-                "user_id": f"eq.{self.ctx.user_id}", "id": f"eq.{job['id']}"
-            })
-            if ev["puntaje"] < 30:
-                discarded += 1
-        return {"updated": len(rows), "discarded": discarded}
+        rows = self._all_jobs({"select": "*", "user_id": f"eq.{self.ctx.user_id}", "order": "id.asc"})
+        updated = self._refresh_matches(rows, profile, evaluator, force=True)
+        return {"updated": updated, "discarded": sum(bool(r["match_breakdown"].get("experience_blocked")) for r in rows)}
