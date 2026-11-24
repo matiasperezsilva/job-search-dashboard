@@ -21,7 +21,7 @@ const MANUAL_PORTALS: Record<string, string> = {
   ChileTrabajos: "https://www.chiletrabajos.cl/",
   Laborum: "https://www.laborum.cl/empleos.html",
   "Trabajando.com": "https://www.trabajando.cl/",
-  BNE: "https://www.bne.cl/",
+  BNE: "https://bne.gob.cl/buscar-empleo",
   LinkedIn: "https://www.linkedin.com/jobs/",
 };
 
