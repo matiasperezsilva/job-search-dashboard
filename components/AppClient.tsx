@@ -11,6 +11,19 @@ import {
 } from "./icons";
 
 const SOURCES = ["GetOnBoard", "Computrabajo", "ChileTrabajos", "Laborum", "Trabajando.com", "BNE", "LinkedIn"];
+const AUTOMATED_SOURCES = ["GetOnBoard", "Computrabajo", "ChileTrabajos", "BNE"];
+const DEFAULT_SOURCES = ["GetOnBoard", "Computrabajo", "ChileTrabajos"];
+const MANUAL_SOURCES = SOURCES.filter(source => !AUTOMATED_SOURCES.includes(source));
+const displaySource = (source?: string) => source === "GetOnBoard" ? "Get on Board" : source;
+const MANUAL_PORTALS: Record<string, string> = {
+  GetOnBoard: "https://www.getonbrd.com/jobs",
+  Computrabajo: "https://cl.computrabajo.com/empleos",
+  ChileTrabajos: "https://www.chiletrabajos.cl/",
+  Laborum: "https://www.laborum.cl/empleos.html",
+  "Trabajando.com": "https://www.trabajando.cl/",
+  BNE: "https://www.bne.cl/",
+  LinkedIn: "https://www.linkedin.com/jobs/",
+};
 
 export default function AppClient({ supabaseUrl, supabaseKey, forceRecovery = false }: { supabaseUrl: string; supabaseKey: string; forceRecovery?: boolean }) {
   const supabase = useMemo<SupabaseClient | null>(() => {
@@ -178,10 +191,46 @@ function Dashboard({ token, go }: { token:string; go:(v:View)=>void }) {
 }
 
 function SearchPage({ token, go }: { token:string; go:(v:View)=>void }) {
-  const [profile,setProfile]=useState<ProfileData|null>(null); const [sources,setSources]=useState<string[]>(["Computrabajo","ChileTrabajos","Trabajando.com"]); const [mode,setMode]=useState("rapida");
+  const [profile,setProfile]=useState<ProfileData|null>(null); const [sources,setSources]=useState<string[]>(DEFAULT_SOURCES); const [mode,setMode]=useState("rapida");
   const [terms,setTerms]=useState(""); const [loading,setLoading]=useState(false); const [result,setResult]=useState<any>(null); const [run,setRun]=useState<SearchRun|null>(null); const [error,setError]=useState("");
   useEffect(()=>{api<ProfileData>("/profile",token).then(p=>{setProfile(p);setTerms((p.profile?.resumen?.terminos_busqueda||[]).join(", "));}).catch(e=>setError(e.message)); api<Partial<SearchRun>>("/search/active",token).then(active=>{if(active.id){setRun(active as SearchRun);setLoading(true);}}).catch(()=>{});},[token]);
-  useEffect(()=>{if(!run?.id || !loading)return; let stopped=false; const poll=async()=>{try{const status=await api<SearchRun>(`/search/${run.id}`,token); if(stopped)return; setRun(status); if(status.status==="completed"){setResult(status.result||{});setLoading(false);} else if(status.status==="failed"){setError(status.error||"La búsqueda se interrumpió.");setLoading(false);}}catch(e){if(!stopped){setError(e instanceof Error?e.message:"No se pudo consultar el progreso.");setLoading(false);}}}; void poll(); const id=window.setInterval(()=>void poll(),2000); return()=>{stopped=true;window.clearInterval(id)}},[run?.id,loading,token]);
+  const runId = run?.id;
+  useEffect(() => {
+    if (!runId || !loading) return;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let failures = 0;
+    async function poll() {
+      try {
+        const status = await api<SearchRun>(`/search/${runId}`, token, {signal: controller.signal});
+        if (controller.signal.aborted) return;
+        failures = 0;
+        setError("");
+        setRun(status);
+        if (status.status === "completed") {
+          setResult(status.result || {});
+          setLoading(false);
+          return;
+        }
+        if (status.status === "failed") {
+          setError(status.error || "La búsqueda se interrumpió.");
+          setLoading(false);
+          return;
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        failures += 1;
+        setError(error instanceof Error ? error.message : "No se pudo consultar el progreso.");
+        if (failures >= 3) {
+          setLoading(false);
+          return;
+        }
+      }
+      timer = window.setTimeout(poll, failures ? 5000 : 3000);
+    }
+    void poll();
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [runId, loading, token]);
   const toggle=(s:string)=>setSources(v=>v.includes(s)?v.filter(x=>x!==s):[...v,s]);
   const startSearch=async()=>{setLoading(true);setError("");setResult(null);setRun(null);try{const r=await api<{run_id:string;status:string}>("/search",token,{method:"POST",body:JSON.stringify({sources,mode,terms:terms.split(",").map(x=>x.trim()).filter(Boolean)})});setRun({id:r.run_id,status:r.status as SearchRun["status"]});}catch(e){setError(e instanceof Error?e.message:"Error");setLoading(false);}};
   return <>
@@ -189,7 +238,13 @@ function SearchPage({ token, go }: { token:string; go:(v:View)=>void }) {
     {!profile?.active && <div className="callout warning"><FileIcon/><div><b>Primero necesitamos tu currículum.</b><p>Sube un CV para generar términos y prioridades.</p></div><button className="btn dark" onClick={()=>go("profile")}>Ir a mi currículum</button></div>}
     <div className="search-layout">
       <section className="panel search-config"><div className="section-kicker">01 · Configuración</div><h3>Define cómo buscar</h3><div className="segmented"><button className={mode==="rapida"?"active":""} onClick={()=>setMode("rapida")}>Rápida <span>Recomendada</span></button><button className={mode==="exhaustiva"?"active":""} onClick={()=>setMode("exhaustiva")}>Exhaustiva <span>Más lenta</span></button></div><label className="field-label">Términos prioritarios<textarea value={terms} onChange={e=>setTerms(e.target.value)} rows={5}/><small>Usa cargos, no tecnologías aisladas. Ej: “qa software”, “cloud support”.</small></label></section>
-      <section className="panel"><div className="section-title-row"><div><div className="section-kicker">02 · Fuentes</div><h3>Selecciona portales</h3></div><div className="source-presets"><button onClick={()=>setSources(["Computrabajo","ChileTrabajos","Trabajando.com"])}>Recomendadas</button><button onClick={()=>setSources(SOURCES)}>Todas</button></div></div><div className="source-grid">{SOURCES.map(s=><button key={s} className={`source-toggle ${sources.includes(s)?"selected":""}`} onClick={()=>toggle(s)}><span className="check-dot">{sources.includes(s)?"✓":""}</span><div><b>{s}</b><small>{s==="GetOnBoard"?"Especializado en tecnología · rápido":s==="LinkedIn"?"Búsqueda pública · puede limitar consultas":s==="Computrabajo"||s==="ChileTrabajos"||s==="Trabajando.com"?"HTML público · rápido":"Secundario · puede tardar"}</small></div></button>)}</div></section>
+      <section className="panel">
+        <div className="section-title-row"><h3>Selecciona portales</h3><div className="source-presets"><button onClick={()=>setSources(DEFAULT_SOURCES)}>Recomendadas</button><button onClick={()=>setSources(AUTOMATED_SOURCES)}>Todas las automáticas</button></div></div>
+        <div className="source-grid">
+          {AUTOMATED_SOURCES.map(source => <button key={source} aria-pressed={sources.includes(source)} className={`source-toggle ${sources.includes(source) ? "selected" : ""}`} onClick={() => toggle(source)}><span className="check-dot" aria-hidden="true">{sources.includes(source) ? "✓" : ""}</span><b>{displaySource(source)}</b></button>)}
+          {MANUAL_SOURCES.map(source => <a key={source} className="source-toggle" href={MANUAL_PORTALS[source]} target="_blank" rel="noopener noreferrer"><ExternalIcon size={17}/><div><b>{source}</b><small>Buscar en el portal</small></div></a>)}
+        </div>
+      </section>
     </div>
     <div className="search-actions"><button className="btn primary xl" disabled={!profile?.active||loading||sources.length===0} onClick={startSearch}>{loading?<><span className="spinner"/>Búsqueda en curso…</>:<><SearchIcon/>Buscar oportunidades</>}</button><span className="muted">La búsqueda continúa en el servidor aunque una fuente tarde varios minutos.</span></div>
     {loading&&run&&<SearchProgress run={run}/>}
@@ -225,9 +280,10 @@ function SourceDiagnosticCard({stat}:{stat:any}){
   const warn=["filtered","empty"].includes(stat.estado);
   const title=stat.cantidad>0?`${stat.cantidad} resultados`:stat.estado==="filtered"?"Sin match válido":stat.estado==="no_links"?"Sin enlaces detectados":stat.estado==="extract_error"?"Falló la extracción":stat.estado==="blocked"?"Bloqueo anti-bot":stat.estado==="query_error"?"Falló la consulta":stat.estado==="empty"?"Sin coincidencias relevantes":"Error de fuente";
   return <div className={`source-stat ${stat.estado||""} ${bad?"diagnostic-error":warn?"diagnostic-warn":"diagnostic-ok"}`}>
-    <div className="source-stat-head"><b>{stat.fuente}</b><span className="source-health-dot"/></div>
+    <div className="source-stat-head"><b>{displaySource(stat.fuente)}</b><span className="source-health-dot"/></div>
     <span>{title} · {stat.segundos||0}s</span>
     {stat.cantidad===0&&stat.diagnostico&&<small className="source-diagnostic-copy">{stat.diagnostico}</small>}
+    {bad && MANUAL_PORTALS[stat.fuente] && <a href={MANUAL_PORTALS[stat.fuente]} target="_blank" rel="noopener noreferrer">Buscar en {stat.fuente}</a>}
     {stat.cantidad===0&&(stat.links_found>0||stat.offers_extracted>0||stat.detail_errors>0)&&<small className="source-diagnostic-metrics">{stat.links_found||0} enlaces · {stat.offers_extracted||0} fichas · {stat.filtered_count||0} filtradas{stat.detail_errors?` · ${stat.detail_errors} errores de ficha`:""}</small>}
   </div>
 }
@@ -286,14 +342,14 @@ function JobsPage({ token }: { token:string }) {
 
 function JobCard({job,selected,onSelect,onFavorite,onHide}:{job:Job;selected:boolean;onSelect:()=>void;onFavorite:()=>void;onHide:()=>void}){
   return <article className={`job-card ${selected?"selected":""} ${job.hidden?"hidden-job":""}`} onClick={onSelect}>
-    <div className="job-card-main"><div className="company-avatar">{(job.empresa||"?").slice(0,1).toUpperCase()}</div><div className="job-copy"><div className="job-title-line"><h3>{job.titulo}</h3>{job.favorite&&<span className="favorite-mark" title="Favorita">★</span>}</div><p>{job.empresa||"Empresa no informada"}</p><div className="job-meta-line"><span>{jobDateLabel(job)}</span>{job.duplicate_count&&job.duplicate_count>1&&<span className="duplicate-note">También encontrada en {job.duplicate_count-1} fuente{job.duplicate_count-1===1?"":"s"} más</span>}</div><div className="badges"><Badge text={job.area||"Sin clasificar"}/><Badge text={job.fuente||"Fuente"} tone="blue"/>{job.duplicate_sources&&job.duplicate_sources.length>1&&<Badge text={`${job.duplicate_sources.length} portales`} tone="gray"/>}{job.is_old&&<Badge text="Antigua" tone="gray"/>}{job.modalidad&&<Badge text={job.modalidad}/>}<Badge text={job.estado||"Sin gestionar"} tone="gray"/></div></div></div>
+    <div className="job-card-main"><div className="company-avatar">{(job.empresa||"?").slice(0,1).toUpperCase()}</div><div className="job-copy"><div className="job-title-line"><h3>{job.titulo}</h3>{job.favorite&&<span className="favorite-mark" title="Favorita">★</span>}</div><p>{job.empresa||"Empresa no informada"}</p><div className="job-meta-line"><span>{jobDateLabel(job)}</span>{job.duplicate_count&&job.duplicate_count>1&&<span className="duplicate-note">También encontrada en {job.duplicate_count-1} fuente{job.duplicate_count-1===1?"":"s"} más</span>}</div><div className="badges"><Badge text={job.area||"Sin clasificar"}/><Badge text={displaySource(job.fuente)||"Fuente"} tone="blue"/>{job.duplicate_sources&&job.duplicate_sources.length>1&&<Badge text={`${job.duplicate_sources.length} portales`} tone="gray"/>}{job.is_old&&<Badge text="Antigua" tone="gray"/>}{job.modalidad&&<Badge text={job.modalidad}/>}<Badge text={job.estado||"Sin gestionar"} tone="gray"/></div></div></div>
     <div className="job-card-side"><div className={`score ${job.puntaje>=70?"high":job.puntaje>=50?"mid":"low"}`}><b>{job.puntaje}</b><span>calce</span></div><div className="card-actions"><button className={`icon-action ${job.favorite?"active":""}`} title={job.favorite?"Quitar de favoritas":"Marcar favorita"} onClick={e=>{e.stopPropagation();onFavorite()}}>{job.favorite?"★":"☆"}</button><button className="icon-action" title={job.hidden?"Restaurar oportunidad":"Ocultar oportunidad"} onClick={e=>{e.stopPropagation();onHide()}}>{job.hidden?"↩":"×"}</button></div></div>
   </article>
 }
 
 function JobDetail({job,token,onSaved,onFavorite,onHide}:{job:Job;token:string;onSaved:()=>void;onFavorite:()=>void;onHide:()=>void}){
   const [tab,setTab]=useState<"info"|"tracking"|"letter">("info");
-  return <div className="detail-card"><div className="detail-head"><span className="eyebrow dark">DETALLE</span><h2>{job.titulo}</h2><p>{job.empresa||"Empresa no informada"}</p><span className="detail-date">{jobDateLabel(job)}</span><div className="detail-actions">{job.link?<a className="btn primary" href={job.link} target="_blank" rel="noopener noreferrer"><ExternalIcon size={17}/>Ver oferta / Postular</a>:<button className="btn disabled" disabled>Enlace no disponible</button>}<button className={`btn ghost compact-btn ${job.favorite?"favorite-btn":""}`} onClick={onFavorite}>{job.favorite?"★ Favorita":"☆ Guardar favorita"}</button><button className="btn ghost compact-btn" onClick={onHide}>{job.hidden?"Restaurar":"Ocultar"}</button></div></div><div className="tabs"><button className={tab==="info"?"active":""} onClick={()=>setTab("info")}>Resumen</button><button className={tab==="tracking"?"active":""} onClick={()=>setTab("tracking")}>Seguimiento</button><button className={tab==="letter"?"active":""} onClick={()=>setTab("letter")}>Carta</button></div>{tab==="info"&&<div className="detail-body"><div className="detail-stat-grid"><SmallStat label="Calce" value={`${job.puntaje}/100`}/><SmallStat label="Área" value={job.area||"—"}/><SmallStat label="Fuente" value={job.duplicate_sources&&job.duplicate_sources.length>1?`${job.duplicate_sources.length} portales`:job.fuente||"—"}/></div>{job.duplicate_sources&&job.duplicate_sources.length>1&&<div className="notice subtle duplicate-detail">También detectada en: {job.duplicate_sources.join(", ")}. Mostramos una sola tarjeta para evitar ruido.</div>}<MatchBreakdownView job={job}/><h4>Por qué aparece aquí</h4><p>{job.razon||"Sin detalle de evaluación."}</p><h4>Descripción</h4><p className="description-text">{job.descripcion||"La fuente no entregó descripción completa."}</p></div>}{tab==="tracking"&&<Tracking job={job} token={token} onSaved={onSaved}/>} {tab==="letter"&&<Letter job={job} token={token}/>}</div>
+  return <div className="detail-card"><div className="detail-head"><span className="eyebrow dark">DETALLE</span><h2>{job.titulo}</h2><p>{job.empresa||"Empresa no informada"}</p><span className="detail-date">{jobDateLabel(job)}</span><div className="detail-actions">{job.link?<a className="btn primary" href={job.link} target="_blank" rel="noopener noreferrer"><ExternalIcon size={17}/>Ver oferta / Postular</a>:<button className="btn disabled" disabled>Enlace no disponible</button>}<button className={`btn ghost compact-btn ${job.favorite?"favorite-btn":""}`} onClick={onFavorite}>{job.favorite?"★ Favorita":"☆ Guardar favorita"}</button><button className="btn ghost compact-btn" onClick={onHide}>{job.hidden?"Restaurar":"Ocultar"}</button></div></div><div className="tabs"><button className={tab==="info"?"active":""} onClick={()=>setTab("info")}>Resumen</button><button className={tab==="tracking"?"active":""} onClick={()=>setTab("tracking")}>Seguimiento</button><button className={tab==="letter"?"active":""} onClick={()=>setTab("letter")}>Carta</button></div>{tab==="info"&&<div className="detail-body"><div className="detail-stat-grid"><SmallStat label="Calce" value={`${job.puntaje}/100`}/><SmallStat label="Área" value={job.area||"—"}/><SmallStat label="Fuente" value={job.duplicate_sources&&job.duplicate_sources.length>1?`${job.duplicate_sources.length} portales`:displaySource(job.fuente)||"—"}/></div>{job.duplicate_sources&&job.duplicate_sources.length>1&&<div className="notice subtle duplicate-detail">También detectada en: {job.duplicate_sources.map(displaySource).join(", ")}. Mostramos una sola tarjeta para evitar ruido.</div>}<MatchBreakdownView job={job}/><h4>Por qué aparece aquí</h4><p>{job.razon||"Sin detalle de evaluación."}</p><h4>Descripción</h4><p className="description-text">{job.descripcion||"La fuente no entregó descripción completa."}</p></div>}{tab==="tracking"&&<Tracking job={job} token={token} onSaved={onSaved}/>} {tab==="letter"&&<Letter job={job} token={token}/>}</div>
 }
 
 function jobDateLabel(job:Job){
@@ -357,7 +413,7 @@ function Letter({job,token}:{job:Job;token:string}){
   const [saveState,setSaveState]=useState<"idle"|"saved"|"error">("idle");
   const [msg,setMsg]=useState("");
   const [savedAt,setSavedAt]=useState<string|null>(null);
-  const [ai,setAi]=useState<{configured:boolean;provider?:string|null;model?:string|null}>({configured:false});
+  const [ai,setAi]=useState<{configured:boolean;provider?:string|null;model?:string|null;cv_text_enabled?:boolean}>({configured:false});
 
   useEffect(()=>{
     setSaveState("idle");setMsg("");setSavedAt(null);
@@ -404,7 +460,9 @@ function Letter({job,token}:{job:Job;token:string}){
   return <div className="detail-body form-stack">
     <div className="segmented compact"><button className={mode==="local"?"active":""} onClick={()=>{setMode("local");setSaveState("idle")}}>Local</button><button className={mode==="inteligente"?"active":""} onClick={()=>{setMode("inteligente");setSaveState("idle")}}>Inteligente · Gemini</button></div>
     {mode==="inteligente"&&<div className={`ai-config-note ${ai.configured?"ready":"missing"}`}>{ai.configured?<>✓ Gemini listo · <b>{ai.model}</b></>:<>Falta configurar <b>GEMINI_API_KEY</b> en Render.</>}</div>}
-    <button className="btn dark" onClick={generate} disabled={loading||(mode==="inteligente"&&!ai.configured)}><SparkIcon size={17}/>{loading?"Generando…":mode==="inteligente"?"Generar con Gemini":"Generar borrador local"}</button>
+    {mode === "inteligente" && ai.configured && <small>{ai.cv_text_enabled && job.fuente !== "GetOnBoard" ? "Gemini recibe texto del CV con los datos de contacto omitidos." : "Rolvora incorpora tu perfil localmente. Gemini solo redacta una frase de cierre."}</small>}
+    {job.source_snapshot_expired && <small>Actualiza la búsqueda para generar una carta con información vigente.</small>}
+    <button className="btn dark" onClick={generate} disabled={loading||job.source_snapshot_expired||(mode==="inteligente"&&!ai.configured)}><SparkIcon size={17}/>{loading?"Generando…":mode==="inteligente"?"Generar con Gemini":"Generar borrador local"}</button>
     <label>Borrador<textarea rows={13} value={content} onChange={e=>onContentChange(e.target.value)} placeholder="Genera o escribe aquí tu carta…"/></label>
     <div className="letter-save-row">
       <div className="button-row"><button className={`btn primary ${saveState==="saved"?"saved-button":""}`} onClick={save} disabled={!content.trim()||saving}>{saving?"Guardando…":saveState==="saved"?"Guardado ✓":"Guardar borrador"}</button><button className="btn ghost" disabled={!content.trim()} onClick={()=>downloadText(content,`carta_${safeName(job.empresa||"empresa")}.txt`)}>Descargar</button></div>
@@ -427,7 +485,7 @@ function ApplicationsPage({token}:{token:string}){
   const load=async()=>{
     setLoading(true);
     try{
-      const r=await api<{items:Job[]}>(`/jobs?min_score=0&include_hidden=true&include_old=true${state?`&state=${encodeURIComponent(state)}`:""}`,token);
+      const r=await api<{items:Job[]}>(`/jobs?min_score=0&include_hidden=true&include_old=true&deduplicate=false${state?`&state=${encodeURIComponent(state)}`:""}`,token);
       setJobs(r.items.filter(j=>j.estado&&j.estado!=="Sin gestionar"));
     }finally{setLoading(false)}
   };
@@ -498,7 +556,7 @@ function ApplicationsPage({token}:{token:string}){
           </div>:<p className="app-notes">{job.notas||"Sin notas todavía."}</p>}
 
           <div className="app-foot">
-            <span>{job.fuente} · {job.puntaje} pts</span>
+            <span>{displaySource(job.fuente)} · {job.puntaje} pts</span>
             {job.link&&<a href={job.link} target="_blank" rel="noopener noreferrer">Ver oferta <ExternalIcon size={14}/></a>}
           </div>
         </article>
@@ -511,6 +569,8 @@ function ApplicationsPage({token}:{token:string}){
 function ProfilePage({token}:{token:string}){
   const [profile,setProfile]=useState<ProfileData|null>(null);
   const [file,setFile]=useState<File|null>(null);
+  const [useGemini, setUseGemini] = useState(false);
+  const [cvEnrichmentAvailable, setCvEnrichmentAvailable] = useState(false);
   const [uploading,setUploading]=useState(false);
   const [terms,setTerms]=useState("");
   const [msg,setMsg]=useState("");
@@ -530,13 +590,18 @@ function ProfilePage({token}:{token:string}){
     setSalary(prefs?.renta_minima?String(prefs.renta_minima):"");
   };
   const load=()=>api<ProfileData>("/profile",token).then(hydrate);
-  useEffect(()=>{load()},[token]);
+  useEffect(() => {
+    void load().catch(error => setMsg(error.message));
+    api<{cv_text_enabled?: boolean}>("/settings/ai", token)
+      .then(config => setCvEnrichmentAvailable(Boolean(config.cv_text_enabled)))
+      .catch(() => setCvEnrichmentAvailable(false));
+  }, [token]);
 
   const upload=async()=>{
     if(!file)return;
     setUploading(true);setMsg("");
     try{
-      const fd=new FormData();fd.append("file",file);
+      const fd=new FormData();fd.append("file",file);fd.append("use_gemini",String(useGemini));
       await api("/profile/upload",token,{method:"POST",body:fd});
       await load();
       setMsg("Currículum actualizado correctamente. Tus preferencias laborales se conservaron.");
@@ -575,7 +640,8 @@ function ProfilePage({token}:{token:string}){
       <section className="panel">
         <div className="section-kicker">CURRÍCULUM</div>
         <h3>{profile?.active?"Actualizar archivo":"Sube tu primer CV"}</h3>
-        <div className="upload-zone"><UploadIcon size={28}/><b>{file?file.name:"Arrastra o selecciona tu currículum"}</b><span>PDF, DOCX o TXT</span><input type="file" accept=".pdf,.docx,.txt" onChange={e=>setFile(e.target.files?.[0]||null)}/></div>
+        <div className="upload-zone"><UploadIcon size={28}/><b>{file?file.name:"Arrastra o selecciona tu currículum"}</b><span>PDF, DOCX o TXT · Hasta 5 MB</span><input aria-label="Archivo de currículum" type="file" accept=".pdf,.docx,.txt" onChange={e=>setFile(e.target.files?.[0]||null)}/></div>
+        {cvEnrichmentAvailable && <label className="notice subtle"><input type="checkbox" checked={useGemini} onChange={event => setUseGemini(event.target.checked)}/> Ampliar el análisis con Gemini. Si está disponible, se envía texto del CV con los datos de contacto omitidos.</label>}
         <button className="btn primary full" onClick={upload} disabled={!file||uploading}>{uploading?"Procesando CV…":"Analizar y activar currículum"}</button>
         {msg&&<div className="notice subtle">{msg}</div>}
       </section>
@@ -585,6 +651,7 @@ function ProfilePage({token}:{token:string}){
         {profile?.active?<>
           <ProfileBlock title="Áreas detectadas" items={summary?.areas_detectadas||[]}/>
           <ProfileBlock title="Competencias detectadas" items={summary?.skills_detectadas||[]}/>
+          {!!summary?.certificaciones_detectadas?.length && <ProfileBlock title="Certificaciones mencionadas en el CV" items={summary.certificaciones_detectadas}/>}
           {summary?.anos_experiencia!==undefined&&summary?.anos_experiencia!==null&&<div className="profile-experience"><span>Experiencia profesional estimada</span><b>{formatExperience(summary.anos_experiencia,summary.meses_experiencia)}</b><small>{summary.experiencia_fuente==="rangos_fechas"?"Calculada desde los rangos de fechas de experiencia laboral del CV.":"Se usa como señal de match cuando la oferta exige años explícitos."}</small></div>}
           <label className="field-label">Cargos objetivo<textarea rows={5} value={terms} onChange={e=>setTerms(e.target.value)}/><small>Puedes editarlos libremente: son los cargos que se consultarán en los portales de empleo.</small></label>
           <button className="btn dark" onClick={saveTerms}>Guardar términos</button>
@@ -642,7 +709,7 @@ function AccountPage({supabase,email}:{supabase:SupabaseClient;email:string}){
 function ProfileBlock({title,items}:{title:string;items:string[]}){return <div className="profile-block"><span>{title}</span><div className="chip-wrap">{items.length?items.map(x=><span className="chip" key={x}>{x}</span>):<small className="muted">Sin elementos detectados</small>}</div></div>}
 function Metric({label,value,hint,tone}:{label:string;value:number;hint:string;tone:string}){return <div className="metric-card"><div className={`metric-icon ${tone}`}></div><span>{label}</span><strong>{value}</strong><small>{hint}</small></div>}
 function Quick({n,title,text,onClick}:{n:string;title:string;text:string;onClick:()=>void}){return <button className="quick-item" onClick={onClick}><span>{n}</span><div><b>{title}</b><p>{text}</p></div><ArrowRightIcon size={16}/></button>}
-function MiniJob({job}:{job:Job}){return <div className="mini-job"><div><b>{job.titulo}</b><span>{job.empresa||"Empresa no informada"} · {job.fuente}</span></div><div className={`score tiny ${job.puntaje>=70?"high":"mid"}`}><b>{job.puntaje}</b></div></div>}
+function MiniJob({job}:{job:Job}){return <div className="mini-job"><div><b>{job.titulo}</b><span>{job.empresa||"Empresa no informada"} · {displaySource(job.fuente)}</span></div><div className={`score tiny ${job.puntaje>=70?"high":"mid"}`}><b>{job.puntaje}</b></div></div>}
 function Badge({text,tone="violet"}:{text:string;tone?:string}){return <span className={`badge ${tone}`}>{text}</span>}
 function SmallStat({label,value}:{label:string;value:string}){return <div className="small-stat"><span>{label}</span><b>{value}</b></div>}
 function ErrorBox({text}:{text:string}){return <div className="callout error"><div><b>No se pudo completar la acción</b><p>{text}</p></div></div>}
