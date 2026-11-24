@@ -79,7 +79,10 @@ def jobposting_jsonld(doc: BeautifulSoup):
 def text_from_html(value: str) -> str:
     if not value:
         return ""
-    return BeautifulSoup(html_lib.unescape(str(value)), "html.parser").get_text(" ", strip=True)
+    document = BeautifulSoup(html_lib.unescape(str(value)), "html.parser")
+    for block in document.find_all(["p", "li", "br", "h2", "h3", "h4"]):
+        block.insert_after("\n")
+    return "\n".join(line.strip() for line in document.get_text(" ").splitlines() if line.strip())
 
 
 def organization_name(value) -> str:
