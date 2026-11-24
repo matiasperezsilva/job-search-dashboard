@@ -13,7 +13,6 @@ El contenedor inicia:
 
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
-- `ENABLE_LINKEDIN=false`
 
 Opcionales para cartas inteligentes:
 
@@ -31,10 +30,16 @@ Nunca agregues `service_role`, contraseñas ni API keys privadas al repositorio.
 
 ## Base de datos
 
-El esquema reproducible está versionado en:
-
-```text
-supabase/migrations/001_initial_schema.sql
-```
+Aplica los archivos de `supabase/migrations/` en orden, primero en una base de ensayo. La migración `004` conserva las corridas históricas y cierra las duplicadas que aún figuren activas antes de crear el índice único.
 
 Incluye tablas, claves foráneas, índices y políticas RLS.
+
+
+## Verificación previa a publicar
+
+1. Confirma el SHA que Render muestra para el despliegue activo. La versión nueva también incluye el SHA abreviado en `/api/health` cuando Render proporciona `RENDER_GIT_COMMIT`.
+2. Con un Supabase de ensayo, prueba la búsqueda con un CV ficticio y confirma que `POST /api/backend/search` devuelve un identificador y que su progreso llega a un estado final.
+3. Prueba con dos cuentas la separación de perfil, ofertas, postulaciones, cartas y búsquedas. Confirma recuperación de contraseña con la URL de ensayo.
+4. Ante un error al iniciar, revisa en Render las entradas `Supabase error` del momento de la solicitud. El recurso, estado HTTP y código permiten diferenciar problemas de sesión, esquema, permisos y conectividad.
+
+`GET /api/health` verifica ambos procesos. La búsqueda autenticada comprueba además Supabase y el acceso a las fuentes. Render Free suspende el servicio por inactividad y puede interrumpir procesos en segundo plano durante reinicios.
