@@ -34,6 +34,7 @@ export type Job = {
   area?: string;
   razon?: string;
   match_breakdown?: MatchBreakdown;
+  experience_blocked?: boolean;
   estado?: string;
   notas?: string;
   first_seen?: string;
