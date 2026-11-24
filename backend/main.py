@@ -23,7 +23,7 @@ from jobsearch.services.profile_ai import enriquecer_perfil_con_gemini
 from jobsearch.services.letters import config_api_desde_entorno, config_gemini_desde_entorno, generar_borrador_local, generar_carta_gemini, generar_carta_inteligente
 from jobsearch.services.scoring import evaluar_oferta
 
-app = FastAPI(title="Rolvora API", version="5.7.11")
+app = FastAPI(title="Rolvora API", version="5.8.0")
 logger = logging.getLogger(__name__)
 
 
